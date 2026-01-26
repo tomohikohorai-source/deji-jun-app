@@ -1,7 +1,9 @@
+
 {
   "name": "デジ巡 (DejiJun) MVP",
   "description": "聖地巡礼スタンプ帳とファン交流のためのデジタル活動支援アプリ。",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "camera"
   ]
 }

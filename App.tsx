@@ -30,7 +30,8 @@ import {
   GripVertical,
   Truck,
   HandHelping,
-  ChevronDown
+  ChevronDown,
+  Heart
 } from 'lucide-react';
 import { UserProfile, OshiColor, Spot, Stamp, ExchangePost, SpotCategory, ExchangeType, ExchangeMethod } from './types';
 import { OSHI_COLORS, CHECKIN_RADIUS_METERS, CATEGORY_LABELS, PREFECTURES } from './constants';
@@ -115,7 +116,7 @@ const ThemeContext = React.createContext<{ color: OshiColor, colorSet: any }>({
 });
 const useTheme = () => React.useContext(ThemeContext);
 
-// --- IP Suggestion Input Component ---
+// --- Shared IP Suggestion Input Component ---
 const IpSuggestionInput = ({ value, onChange, category, placeholder, spots }: { value: string, onChange: (val: string) => void, category?: SpotCategory, placeholder: string, spots: Spot[] }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [query, setQuery] = useState('');
@@ -188,7 +189,8 @@ const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =
           isAnonymous: false,
           prefecture: formData.prefecture,
           age: formData.age,
-          gender: formData.gender
+          gender: formData.gender,
+          favoriteSpotIds: []
         };
         store.saveUser(newUser);
         onLoginSuccess(newUser);
@@ -196,7 +198,14 @@ const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =
         const cred = await signInWithEmailAndPassword(fbAuth, email, formData.password);
         let user = store.getStoredUser();
         if (!user || user.id !== cred.user.uid) {
-          user = { id: cred.user.uid, name: formData.loginId || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都' };
+          user = { 
+            id: cred.user.uid, 
+            name: formData.loginId || 'ファン', 
+            oshiColor: 'pink', 
+            isAnonymous: false,
+            prefecture: '東京都',
+            favoriteSpotIds: []
+          };
           store.saveUser(user);
         }
         onLoginSuccess(user);
@@ -257,60 +266,111 @@ const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =
               <FileText className="text-pink-600" />
               {showLegal === 'terms' ? '利用規約' : 'プライバシーポリシー'}
             </h2>
-            <div className="text-sm text-slate-600 space-y-6 font-medium leading-relaxed">
-              {showLegal === 'terms' ? (
-                <div className="space-y-4">
-                  <p className="font-bold text-slate-800">利用規約</p>
-                  <p>本利用規約（以下「本規約」といいます。）は、「デジ巡」（以下「本サービス」といいます。）の利用条件を定めるものです。本サービスを利用される皆様（以下「ユーザー」といいます。）は、本規約の内容を理解し、同意したうえで本サービスを利用するものとします。</p>
-                  <p className="font-bold">第1条（本サービスの内容）</p>
-                  <p>本サービスは、ユーザーがアーティスト、アニメ作品、インフルエンサー、スポーツ選手等に関連する「聖地」や「思い出の場所」を登録・閲覧し、チェックイン、デジタルスタンプの取得、写真の保存、記録（ログ）の管理、ユーザー同士の交流等を楽しむためのファン活動支援型デジタルサービスです。<br/>本サービスは、特定の知的財産（以下「IP」といいます。）の権利者、芸能事務所、制作会社、スポーツ団体等（以下「権利者」といいます。）と提携または公認されたものではありません（当社が別途明示した場合を除きます）。<br/>本サービスは、ファンによる自主的・非公式な活動の場を提供するものであり、特定IPの公式性、正確性、完全性を保証するものではありません。</p>
-                  <p className="font-bold">第2条（利用登録）</p>
-                  <p>本サービスの利用を希望する者は、本規約に同意のうえ、当社が定める方法により利用登録を行うものとします。<br/>当社は、以下のいずれかに該当すると判断した場合、利用登録の拒否、または登録後であってもアカウントの停止・削除を行うことがあります。<br/>1.虚偽、誤解を招く情報を登録した場合<br/>2.過去に本規約に違反したことがある場合<br/>3.未成年者が法定代理人の同意なく利用している場合<br/>4.その他、当社が不適切と判断した場合</p>
-                  <p className="font-bold">第3条（ユーザー投稿コンテンツ）</p>
-                  <p>ユーザーは、本サービス上において、以下の情報（以下「投稿コンテンツ」といいます。）を投稿することができます。<br/>1.聖地・思い出の場所の名称、位置情報、説明文<br/>2.自身の体験・感想・記録（ログ）<br/>3.SNS投稿やWebページのURL（※第三者の画像・動画そのものの転載は禁止）<br/>4.チェックイン履歴、スタンプ取得履歴<br/>5.ユーザー自身が撮影した写真<br/>ユーザーは、投稿コンテンツについて、自らが投稿する正当な権利を有していること、また第三者の権利を侵害していないことを保証するものとします。<br/>投稿コンテンツの著作権は、原則として当該ユーザーに帰属します。ただし、ユーザーは当社に対し、本サービスの運営、改善、広報、機能検証の目的に限り、無償・非独占的に利用（複製、表示、公開、翻案を含みます）する権利を許諾するものとします。</p>
-                  <p className="font-bold">第4条（禁止事項）</p>
-                  <p>ユーザーは、本サービスの利用にあたり、以下の行為をしてはなりません。<br/>1.権利者の著作権、商標権、肖像権、パブリシティ権その他の権利を侵害する行為<br/>2.本サービスが公式・公認であるかのような誤認を生じさせる表現（例：「公式聖地」「本人公認」「事務所監修」等）<br/>3.他人のSNS投稿、画像、動画、文章等を、権利者または投稿者の許諾なく転載する行為<br/>4.虚偽、誤解を招く、または確認不能な情報の登録<br/>5.誹謗中傷、差別的表現、嫌がらせ、迷惑行為<br/>6.商業目的の無断広告、勧誘、営業行為<br/>7.法令または公序良俗に反する行為<br/>8.その他、当社が不適切と判断する行為</p>
-                  <p className="font-bold">第5条（IPおよびファン活動に関する注意事項）</p>
-                  <p>本サービスは、ファンによる自主的な活動を支援するものであり、特定IPの権利関係について保証、承認、推奨するものではありません。<br/>ユーザーは、IP名、人物名、関連表現、画像、説明文等の使用にあたり、第三者の権利を侵害しないよう十分に配慮し、自らの責任において利用するものとします。<br/>当社は、権利者または第三者から、投稿コンテンツに関して削除・修正等の要請を受けた場合、ユーザーへの事前通知なく、当該コンテンツの削除、非公開、修正等の対応を行うことがあります。</p>
-                  <p className="font-bold">第6条（チェックインおよび位置情報）</p>
-                  <p>本サービスでは、GPS等の位置情報を利用してチェックイン判定を行う機能を提供する場合があります。<br/>位置情報の取得は、ユーザーの明示的な同意に基づき行われます。<br/>当社は、取得した位置情報を、本サービス提供および改善の目的以外に利用しません。詳細は別途定めるプライバシーポリシーに従うものとします。</p>
-                  <p className="font-bold">第7条（コミュニティ機能・ユーザー間取引）</p>
-                  <p>ユーザー同士の交流、コメント、チャット、グッズ交換等の行為は、ユーザー自身の責任において行われるものとします。<br/>当社は、ユーザー間で生じたトラブル、紛争、損害について、一切の責任を負いません。<br/>当社は、報告や確認に基づき、不適切と判断した場合、警告、投稿削除、機能制限、アカウント停止等の措置を行うことがあります。</p>
-                  <p className="font-bold">第8条（免責事項）</p>
-                  <p>当社は、本サービスの内容、情報の正確性、完全性、有用性について、いかなる保証も行うものではありません。<br/>本サービスの利用または利用不能によりユーザーに生じた損害について、当社の故意または重過失による場合を除き、責任を負いません。<br/>ユーザーと権利者または第三者との間で生じた紛争については、ユーザー自身の責任と費用により解決するものとします。</p>
-                  <p className="font-bold">第9条（サービスの変更・停止）</p>
-                  <p>当社は、ユーザーへの事前通知なく、本サービスの内容の変更、追加、停止、または終了を行うことがあります。</p>
-                  <p className="font-bold">第10条（規約の変更）</p>
-                  <p>当社は、必要と判断した場合、本規約を変更することができます。変更後の規約は、本サービス上に表示した時点で効力を生じるものとします。</p>
-                  <p className="font-bold">第11条（準拠法・管轄）</p>
-                  <p>本規約は日本法を準拠法とし、本サービスに関して生じた紛争については、当社本店所在地を管轄する地方裁判所を専属的合意管轄とします。</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <p className="font-bold text-slate-800">プライバシーポリシー</p>
-                  <p>「デジ巡」（以下「本サービス」といいます。）は、ユーザーの皆様のプライバシーを尊重し、個人情報の保護を重要な責務と考えています。本プライバシーポリシーは、本サービスにおけるユーザーの情報の取扱いについて定めるものです。</p>
-                  <p className="font-bold">第1条（取得する情報）</p>
-                  <p>本サービスでは、以下の情報を取得する場合があります。<br/>1.ユーザーが直接提供する情報（ニックネーム、投稿コンテンツ等）<br/>2.本サービス利用時に自動的に取得される情報（位置情報、利用履歴、端末情報等）</p>
-                  <p className="font-bold">第2条（位置情報の取扱い）</p>
-                  <p>本サービスでは、チェックイン機能の提供を目的として、GPS等の位置情報を取得する場合があります。<br/>位置情報の取得は、ユーザーの明示的な同意を得た場合にのみ行われます。<br/>取得した位置情報は、チェックイン判定、記録生成、サービス改善にのみ利用します。当社は、位置情報を常時追跡することはなく、チェックイン等の機能実行時にのみ取得します。</p>
-                  <p className="font-bold">第3条（利用目的）</p>
-                  <p>当社は、取得した情報を本サービスの運営、ユーザーサポート、分析、不正利用防止、重要なお知らせの通知等のために利用します。</p>
-                  <p className="font-bold">第4条（第三者提供）</p>
-                  <p>当社は、ユーザー本人の同意がある場合や法令に基づく場合を除き、個人情報を第三者に提供することはありません。</p>
-                  <p className="font-bold">第5条（情報の管理）</p>
-                  <p>当社は、個人情報の漏えい、滅失、改ざん、不正アクセス等を防止するため、合理的な安全管理措置を講じます。</p>
-                  <p className="font-bold">第6条（保存期間）</p>
-                  <p>当社は、取得した個人情報を利用目的達成に必要な期間保管し、その後適切に削除します。</p>
-                  <p className="font-bold">第7条（ユーザーの権利）</p>
-                  <p>ユーザーは、自身の個人情報の確認、訂正、削除、利用停止を請求することができます。</p>
-                  <p className="font-bold">第8条（未成年者の利用）</p>
-                  <p>未成年者が本サービスを利用する場合は、保護者または法定代理人の同意を得たうえで利用するものとします。</p>
-                  <p className="font-bold">第9条（外部サービスとの連携）</p>
-                  <p>本サービスにおける外部サービスへのリンク先等での個人情報取扱いについて、当社は責任を負いません。</p>
-                  <p className="font-bold">第10条（プライバシーポリシーの変更）</p>
-                  <p>当社は、必要に応じて本ポリシーを変更することがあります。変更後の内容は、本サービス上に掲載した時点で効力を生じるものとします。</p>
-                </div>
-              )}
+            <div className="text-sm text-slate-600 space-y-6 font-medium leading-relaxed whitespace-pre-wrap">
+              {showLegal === 'terms' ? `利用規約
+本利用規約（以下「本規約」といいます。）は、「デジ巡」（以下「本サービス」といいます。）の利用条件を定めるものです。本サービスを利用される皆様（以下「ユーザー」といいます。）は、本規約の内容を理解し、同意したうえで本サービスを利用するものとします。
+第1条（本サービスの内容）
+本サービスは、ユーザーがアーティスト、アニメ作品、インフルエンサー、スポーツ選手等に関連する「聖地」や「思い出の場所」を登録・閲覧し、チェックイン、デジタルスタンプの取得、写真の保存、記録（ログ）の管理、ユーザー同士の交流等を楽しむためのファン活動支援型デジタルサービスです。
+本サービスは、特定の知的財産（以下「IP」といいます。）の権利者、芸能事務所、制作会社、スポーツ団体等（以下「権利者」といいます。）と提携または公認されたものではありません（当社が別途明示した場合を除きます）。
+本サービスは、ファンによる自主的な活動の場を提供するものであり、特定IPの公式性、正確性、完全性を保証するものではありません。
+第2条（利用登録）
+本サービスの利用を希望する者は、本規約に同意のうえ、当社が定める方法により利用登録を行うものとします。
+当社は、以下のいずれかに該当すると判断した場合、利用登録の拒否、または登録後であってもアカウントの停止・削除を行うことがあります。
+虚偽、誤解を招く情報を登録した場合
+過去に本規約に違反したことがある場合
+未成年者が法定代理人の同意なく利用している場合
+その他、当社が不適切と判断した場合
+第3条（ユーザー投稿コンテンツ）
+ユーザーは、本サービス上において、以下の情報（以下「投稿コンテンツ」といいます。）を投稿することができます。
+聖地・思い出の場所の名称、位置情報、説明文
+自身の体験・感想・記録（ログ）
+SNS投稿やWebページのURL（※第三者の画像・動画そのものの転載は禁止）
+チェックイン履歴、スタンプ取得履歴
+ユーザー自身が撮影した写真
+ユーザーは、投稿コンテンツについて、自らが投稿する正当な権利を有していること、また第三者の権利を侵害していないことを保証するものとします。
+投稿コンテンツの著作権は、原則として当該ユーザーに帰属します。ただし、ユーザーは当社に対し、本サービスの運営、改善、広報、機能検証の目的に限り、無償・非独占的に利用（複製、表示、公開、翻案を含みます）する権利を許諾するものとします。
+第4条（禁止事項）
+ユーザーは、本サービスの利用にあたり、以下の行為をしてはなりません。
+権利者の著作権、商標権、肖像権、パブリシティ権その他の権利を侵害する行為
+本サービスが公式・公認であるかのような誤認を生じさせる表現（例：「公式聖地」「本人公認」「事務所監修」等）
+他人のSNS投稿、画像、動画、文章等を、権利者または投稿者の許諾なく転載する行為
+虚偽、誤解を招く、または確認不能な情報の登録
+誹謗中傷、差別的表現、嫌がらせ、迷惑行為
+商業目的の無断広告、勧誘、営業行為
+法令または公序良俗に反する行為
+その他、当社が不適切と判断する行為
+第5条（IPおよびファン活動に関する注意事項）
+本サービスは、ファンによる自主的な活動を支援するものであり、特定IPの権利関係について保証、承認、推奨するものではありません。
+ユーザーは、IP名、人物名、関連表現、画像、説明文等の使用にあたり、第三者の権利を侵害しないよう十分に配慮し、自らの責任において利用するものとします。
+当社は、権利者または第三者から、投稿コンテンツに関して削除・修正等の要請を受けた場合、ユーザーへの事前通知なく、当該コンテンツの削除、非公開、修正等の対応を行うことがあります。
+第6条（チェックインおよび位置情報）
+本サービスでは、GPS等の位置情報を利用してチェックイン判定を行う機能を提供する場合があります。
+位置情報の取得は、ユーザーの明示的な同意に基づき行われます。
+当社は、取得した位置情報を、本サービス提供および改善の目的以外に利用しません。詳細は別途定めるプライバシーポリシーに従うものとします。
+第7条（コミュニティ機能・ユーザー間取引）
+ユーザー同士の交流、コメント、チャット、グッズ交換等の行為は、ユーザー自身の責任において行われるものとします。
+当社は、ユーザー間で生じたトラブル、紛争、損害について、一切の責任を負いません。
+当社は、報告や確認に基づき、不適切と判断した場合、警告、投稿削除、機能制限、アカウント停止等の措置を行うことがあります。
+第8条（免責事項）
+当社は、本サービスの内容、情報の正確性、完全性、有用性について、いかなる保証も行うものではありません。
+本サービスの利用または利用不能によりユーザーに生じた損害について、当社の故意または重過失による場合を除き、責任を負いません。
+ユーザーと権利者または第三者との間で生じた紛争については、ユーザー自身の責任と費用により解決するものとします。
+第9条（サービスの変更・停止）
+当社は、ユーザーへの事前通知なく、本サービスの内容の変更、追加、停止、または終了を行うことがあります。
+第10条（規約の変更）
+当社は、必要と判断した場合、本規約を変更することができます。変更後の規約は、本サービス上に表示した時点で効力を生じるものとします。
+第11条（準拠法・管轄）
+本規約は日本法を準拠法とし、本サービスに関して生じた紛監については、当社本店所在地を管轄する地方裁判所を専属的合意管轄とします。` : 
+              `プライバシーポリシー
+「デジ巡」（以下「本サービス」といいます。）は、ユーザーの皆様のプライバシーを尊重し、個人情報の保護を重要な責務と考えています。本プライバシーポリシーは、本サービスにおけるユーザーの情報の取扱いについて定めるものです。
+第1条（取得する情報）
+本サービスでは、以下の情報を取得する場合があります。
+ユーザーが直接提供する情報
+利用登録時に入力する情報（ニックネーム、メールアドレス等）
+投稿コンテンツ（聖地情報、コメント、写真、チェックイン記録等）
+お問い合わせ時に提供される情報
+本サービス利用時に自動的に取得される情報
+位置情報（GPS等によるチェックイン判定時）
+利用履歴（チェックイン日時、スタンプ取得履歴、閲覧履歴等）
+端末情報（OS、ブラウザ種別、アプリバージョン等）
+クッキー（Cookie）や類似技術による識別情報（Web版提供時）
+第2条（位置情報の取扱い）
+本サービスでは、チェックイン機能の提供を目的として、GPS等の位置情報を取得する場合があります。
+位置情報の取得は、ユーザーの明示的な同意を得た場合にのみ行われます。
+取得した位置情報は、以下の目的に限り利用します。
+チェックイン判定
+デジタルスタンプ・記録（ログ）の生成
+本サービスの改善・不正利用防止
+当社は、位置情報を常時追跡することはなく、チェックイン等の機能実行時にのみ取得します。
+第3条（利用目的）
+当社は、取得した情報を以下の目的で利用します。
+本サービスの提供・運営・改善
+チェックイン、スタンプ、記録機能の提供
+ユーザーサポートおよび問い合わせ対応
+利用状況の分析および機能改善（個人を特定しない形に限る）
+不正利用、規約違反行為の防止および対応
+サービスに関する重要なお知らせの通知
+第4条（第三者提供）
+当社は、以下の場合を除き、ユーザーの個人情報を第三者に提供することはありません。
+ユーザー本人の同意がある場合
+法令に基づき開示が求められた場合
+人の生命、身体または財産の保護のために必要がある場合
+サービス運営に必要な範囲で業務委託先に提供する場合（この場合、適切な管理を行います）
+投稿コンテンツに含まれる情報は、ユーザー自身の設定および投稿内容に基づき、他のユーザーに表示される場合があります。
+第5条（情報の管理）
+当社は、個人情報の漏えい、滅失、改ざん、不正アクセス等を防止するため、合理的な安全管理措置を講じます。
+第6条（保存期間）
+当社は、取得した個人情報を、利用目的の達成に必要な期間に限り保管し、その後は適切な方法により削除または匿名化します。
+第7条（ユーザーの権利）
+ユーザーは、当社所定の方法により、以下を請求することができます。
+自身の個人情報の確認、訂正、削除
+利用停止の要請（法令上対応可能な範囲に限ります）
+第8条（未成年者の利用）
+未成年者が本サービスを利用する場合は、保護者または法定代理人の同意を得たうえで利用するものとします。
+第9条（外部サービスとの連携）
+本サービスでは、外部サービス（SNS、地図サービス等）へのリンクや連携機能を提供する場合があります。これらの外部サービスにおける個人情報の取扱いについては、当社は責任を負いません。
+第10条（プライバシーポリシーの変更）
+当社は、必要に応じて本プライバシーポリシーを変更することがあります。変更後の内容は、本サービス上に掲載した時点で効力を生じるものとします。`}
             </div>
             <Button className="mt-10" onClick={() => setShowLegal(null)}>内容を確認しました</Button>
           </div>
@@ -321,7 +381,7 @@ const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =
 };
 
 // --- Map Component ---
-const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: Stamp[], userId: string, onRefresh: () => void }) => {
+const MapView = ({ spots, stamps, user, onRefresh }: { spots: Spot[], stamps: Stamp[], user: UserProfile, onRefresh: () => void }) => {
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const theme = useTheme();
@@ -342,13 +402,20 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
       mapRef.current = L.map('map', { zoomControl: false }).setView([35.6895, 139.6917], 13);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapRef.current);
     }
-    navigator.geolocation.getCurrentPosition((pos) => {
+    const watchId = navigator.geolocation.watchPosition((pos) => {
       const { latitude, longitude } = pos.coords;
       setUserLocation([latitude, longitude]);
-      mapRef.current.setView([latitude, longitude], 15);
-      L.circle([latitude, longitude], { radius: 30, color: '#3b82f6', fillOpacity: 0.1 }).addTo(mapRef.current);
+    }, (err) => console.error(err), { enableHighAccuracy: true });
+
+    navigator.geolocation.getCurrentPosition((pos) => {
+      mapRef.current.setView([pos.coords.latitude, pos.coords.longitude], 15);
+      L.circle([pos.coords.latitude, pos.coords.longitude], { radius: 30, color: '#3b82f6', fillOpacity: 0.1 }).addTo(mapRef.current);
     });
-    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+
+    return () => { 
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } 
+      navigator.geolocation.clearWatch(watchId);
+    };
   }, []);
 
   useEffect(() => {
@@ -357,10 +424,11 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
     markersRef.current = [];
     spots.forEach(spot => {
       const isStamped = stamps.some(s => s.spotId === spot.id);
-      const color = isStamped ? '#10b981' : (OSHI_COLORS[theme.color as OshiColor]?.primary.replace('bg-', '#') || '#ec4899');
+      // チェックイン前はテーマカラー、チェックイン後は緑
+      const colorHex = isStamped ? '#10b981' : OSHI_COLORS[theme.color as OshiColor].hex;
       const icon = L.divIcon({
         className: 'custom-pin-container',
-        html: `<div class="custom-pin" style="background-color: ${color};"><i class="text-white">${isStamped ? '✓' : '●'}</i></div>`,
+        html: `<div class="custom-pin" style="background-color: ${colorHex};"><i class="text-white">${isStamped ? '✓' : '●'}</i></div>`,
         iconSize: [32, 32], iconAnchor: [16, 32]
       });
       const marker = L.marker([spot.lat, spot.lng], { icon }).addTo(mapRef.current);
@@ -389,6 +457,35 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
     setIsAdding('spot');
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    const compressed = await Promise.all(files.slice(0, 3).map(f => compressImage(f)));
+    setCheckinForm(prev => ({ ...prev, photos: [...prev.photos, ...compressed].slice(0, 3) }));
+  };
+
+  const handleSaveCheckin = () => {
+    if (!selectedSpot) return;
+    const dist = userLocation ? calculateDistance(userLocation[0], userLocation[1], selectedSpot.lat, selectedSpot.lng) : Infinity;
+    if (dist > CHECKIN_RADIUS_METERS) {
+      alert(`距離が遠すぎます（約${Math.round(dist)}m）。200m以内に入ってからチェックインしてください。`);
+      return;
+    }
+    store.saveStamp({
+      id: Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      spotId: selectedSpot.id,
+      timestamp: Date.now(),
+      type: selectedSpot.isPublic ? 'seichi' : 'memory',
+      photos: checkinForm.photos,
+      note: checkinForm.note,
+    });
+    setIsAdding('none');
+    setSelectedSpot(null);
+    setCheckinForm({ note: '', photos: [] });
+    onRefresh();
+    alert('チェックインが完了しました！');
+  };
+
   const handleRegisterSpot = (isPublic: boolean) => {
     const targetLoc = pickedLoc || userLocation;
     if (!targetLoc || !newSpotData.name || !newSpotData.ipName) {
@@ -406,7 +503,7 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
       lat: targetLoc[0],
       lng: targetLoc[1],
       isPublic: isPublic,
-      createdBy: userId,
+      createdBy: user.id,
       createdAt: Date.now()
     };
     store.saveSpot(newSpot);
@@ -414,8 +511,10 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
     setNewSpotData({ name: '', category: 'artist', ipName: '', description: '', evidenceUrl: '' });
     setPickedLoc(null);
     onRefresh();
-    alert(isPublic ? '聖地を登録しました！' : '思い出の場所を記録しました！');
+    alert('聖地が登録できました！');
   };
+
+  const isFavorite = selectedSpot && (user.favoriteSpotIds || []).includes(selectedSpot.id);
 
   return (
     <div className="relative h-full w-full">
@@ -454,7 +553,12 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
               <h3 className="text-xl font-black mt-1">{selectedSpot.name}</h3>
               <p className="text-sm font-bold text-slate-500">{selectedSpot.ipName}</p>
             </div>
-            <button onClick={() => setSelectedSpot(null)}><X size={20} /></button>
+            <div className="flex gap-2">
+              <button onClick={() => { store.toggleFavorite(user.id, selectedSpot.id); onRefresh(); }} className={`p-2 rounded-full transition-colors ${isFavorite ? 'text-rose-500 bg-rose-50' : 'text-slate-300 bg-slate-50'}`}>
+                <Heart size={24} fill={isFavorite ? 'currentColor' : 'none'} />
+              </button>
+              <button onClick={() => setSelectedSpot(null)}><X size={20} /></button>
+            </div>
           </div>
           <div className="flex gap-4 text-[10px] font-bold text-slate-400 mb-4 items-center">
             <span className="flex items-center gap-1"><Users size={12}/> {store.getAllLocalStamps().filter(s => s.spotId === selectedSpot?.id).length}人が巡礼</span>
@@ -463,7 +567,7 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
           <p className="text-sm text-slate-600 mb-6 line-clamp-2">{selectedSpot.description}</p>
           <div className="flex gap-2">
             <Button onClick={() => setIsAdding('checkin')} className="flex-1"><CheckCircle2 size={18}/> チェックイン</Button>
-            <button onClick={() => { store.reportSpot(selectedSpot.id, '不適切・誤情報', userId); alert('報告を送信しました。'); }} className="p-4 bg-slate-50 rounded-2xl text-slate-400"><Flag size={20}/></button>
+            <button onClick={() => { store.reportSpot(selectedSpot.id, '不適切・誤情報', user.id); alert('報告を送信しました。'); }} className="p-4 bg-slate-50 rounded-2xl text-slate-400"><Flag size={20}/></button>
           </div>
         </div>
       )}
@@ -531,6 +635,31 @@ const MapView = ({ spots, stamps, userId, onRefresh }: { spots: Spot[], stamps: 
           </div>
         </div>
       )}
+
+      {isAdding === 'checkin' && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-end">
+          <div className="w-full bg-white rounded-t-[2.5rem] p-8 max-h-[95%] overflow-y-auto no-scrollbar pb-10">
+            <div className="flex justify-between mb-6"><h2 className="text-2xl font-black">記録を残す</h2><button onClick={() => setIsAdding('none')}><X size={24}/></button></div>
+            <div className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 mb-2">写真（最大3枚）</label>
+                <div className="flex gap-2">
+                  {checkinForm.photos.map((p, i) => <div key={i} className="w-20 h-20 bg-slate-100 rounded-xl overflow-hidden relative"><img src={p} className="w-full h-full object-cover" /><button onClick={() => setCheckinForm(prev => ({...prev, photos: prev.photos.filter((_, idx) => idx !== i)}))} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X size={12}/></button></div>)}
+                  {checkinForm.photos.length < 3 && <label className="w-20 h-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 cursor-pointer">
+                    <div className="text-center">
+                      <Camera size={24} className="mx-auto mb-1"/>
+                      <span className="text-[8px] font-black">写真を選択</span>
+                    </div>
+                    <input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden"/>
+                  </label>}
+                </div>
+              </div>
+              <textarea placeholder="今日の感想を記録しましょう..." rows={3} value={checkinForm.note} onChange={e => setCheckinForm({...checkinForm, note: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-pink-300" />
+              <Button onClick={handleSaveCheckin}>この瞬間を記録する</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -551,12 +680,14 @@ const ExchangeView = ({ user, theme, spots }: { user: UserProfile, theme: any, s
       alert('「IP名」と「詳細」は必須入力です');
       return;
     }
-    if (formData.method === 'hand' && (!formData.handPlace || !formData.handTime)) {
-      alert('手渡しの場合、場所と日時の入力が必要です');
-      return;
+    if (formData.method === 'hand') {
+      if (!formData.handPlace || !formData.handTime) {
+        alert('手渡しの場合、「受け渡し希望場所」と「受け渡し希望日時」は必須入力です');
+        return;
+      }
     }
     if (formData.method === 'mail' && !formData.mailPrefecture) {
-      alert('郵送の場合、お届け先の都道府県の選択が必要です');
+      alert('郵送の場合、「宛先（都道府県）」の選択が必要です');
       return;
     }
 
@@ -667,8 +798,8 @@ const ExchangeView = ({ user, theme, spots }: { user: UserProfile, theme: any, s
 
               {formData.method === 'hand' && (
                 <div className="space-y-3 p-4 bg-slate-50 rounded-2xl animate-in slide-in-from-top-2 duration-300 shadow-inner">
-                   <input type="text" placeholder="受け渡し場所（例：渋谷駅ハチ公前）" value={formData.handPlace} onChange={e => setFormData({...formData, handPlace: e.target.value})} className="w-full p-3 rounded-xl border-2 border-transparent focus:border-amber-400 outline-none font-bold text-sm" />
-                   <input type="text" placeholder="受け渡し希望日時（例：土日の午後）" value={formData.handTime} onChange={e => setFormData({...formData, handTime: e.target.value})} className="w-full p-3 rounded-xl border-2 border-transparent focus:border-amber-400 outline-none font-bold text-sm" />
+                   <input type="text" placeholder="受け渡し場所（必須：例：渋谷駅ハチ公前）" value={formData.handPlace} onChange={e => setFormData({...formData, handPlace: e.target.value})} className="w-full p-3 rounded-xl border-2 border-transparent focus:border-amber-400 outline-none font-bold text-sm" />
+                   <input type="text" placeholder="受け渡し希望日時（必須：例：土日の午後）" value={formData.handTime} onChange={e => setFormData({...formData, handTime: e.target.value})} className="w-full p-3 rounded-xl border-2 border-transparent focus:border-amber-400 outline-none font-bold text-sm" />
                 </div>
               )}
 
@@ -718,9 +849,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   const refresh = () => {
-    if (user) {
+    const u = store.getStoredUser();
+    if (u) {
+      setUser(u);
       setSpots(store.getSpots());
-      setStamps(store.getStamps(user.id));
+      setStamps(store.getStamps(u.id));
     }
   };
 
@@ -729,7 +862,7 @@ export default function App() {
       if (fbUser) {
         let stored = store.getStoredUser();
         if (!stored || stored.id !== fbUser.uid) {
-          stored = { id: fbUser.uid, name: fbUser.email?.split('@')[0] || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都' };
+          stored = { id: fbUser.uid, name: fbUser.email?.split('@')[0] || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都', favoriteSpotIds: [] };
           store.saveUser(stored);
         }
         setUser(stored);
@@ -739,7 +872,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => { refresh(); }, [user]);
+  useEffect(() => { refresh(); }, [user?.id]);
 
   const theme = useMemo(() => ({
     color: user?.oshiColor || 'pink',
@@ -748,6 +881,8 @@ export default function App() {
 
   if (loading) return null;
   if (!user) return <AuthOverlay onLoginSuccess={setUser} />;
+
+  const favoriteSpots = spots.filter(s => (user.favoriteSpotIds || []).includes(s.id));
 
   return (
     <ThemeContext.Provider value={theme}>
@@ -786,13 +921,35 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-lg font-black mb-4 flex items-center gap-2">
+                  <Heart size={20} className="text-rose-500" fill="currentColor"/> 気になるスポット
+                </h3>
+                {favoriteSpots.length === 0 ? (
+                  <div className="bg-white rounded-[2rem] p-8 text-center border border-dashed border-slate-200">
+                    <p className="text-xs font-bold text-slate-400">マップでハートを押して、<br/>行きたい場所をリストアップしましょう！</p>
+                  </div>
+                ) : (
+                  <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
+                    {favoriteSpots.map(spot => (
+                      <div key={spot.id} onClick={() => { setActiveTab('map'); /* TODO: Focus on map */ }} className="min-w-[200px] bg-white rounded-3xl p-4 border border-slate-100 shadow-sm flex-shrink-0 active:scale-95 transition-transform cursor-pointer">
+                        <span className="text-[9px] font-black text-slate-300 uppercase block mb-1">{CATEGORY_LABELS[spot.category]}</span>
+                        <h4 className="font-black text-sm line-clamp-1 mb-1">{spot.name}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 line-clamp-1">{spot.ipName}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <Button onClick={() => setActiveTab('map')} variant="secondary" className="bg-white h-24 flex-col text-xs uppercase"><MapPin size={24} className={theme.colorSet.text} />聖地を探す</Button>
                 <Button onClick={() => setActiveTab('exchange')} variant="secondary" className="bg-white h-24 flex-col text-xs uppercase"><Repeat size={24} className={theme.colorSet.text} />掲示板を見る</Button>
               </div>
             </div>
           )}
-          {activeTab === 'map' && <MapView spots={spots} stamps={stamps} userId={user.id} onRefresh={refresh} />}
+          {activeTab === 'map' && <MapView spots={spots} stamps={stamps} user={user} onRefresh={refresh} />}
           {activeTab === 'stamps' && (
             <div className="p-6 space-y-6">
               <h2 className="text-3xl font-black tracking-tight">記録手帳</h2>

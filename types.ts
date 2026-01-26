@@ -12,6 +12,7 @@ export interface UserProfile {
   city?: string;
   oshiIp?: string;
   oshiMember?: string;
+  favoriteSpotIds?: string[]; // 気になるスポット
 }
 
 export type SpotCategory = 'artist' | 'influencer' | 'actor' | 'media' | 'sports' | 'other';

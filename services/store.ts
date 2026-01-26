@@ -30,6 +30,21 @@ export const saveUser = (user: UserProfile) => {
   localStorage.setItem(KEYS.ALL_USERS, JSON.stringify(registry));
 };
 
+export const toggleFavorite = (userId: string, spotId: string) => {
+  const user = getStoredUser();
+  if (!user || user.id !== userId) return;
+  
+  const favs = user.favoriteSpotIds || [];
+  const index = favs.indexOf(spotId);
+  if (index > -1) {
+    favs.splice(index, 1);
+  } else {
+    favs.push(spotId);
+  }
+  
+  saveUser({ ...user, favoriteSpotIds: favs });
+};
+
 export const getAllUsers = (): UserProfile[] => {
   const data = localStorage.getItem(KEYS.ALL_USERS);
   return data ? JSON.parse(data) : [];

@@ -1,13 +1,13 @@
 
 import { OshiColor, Spot } from './types';
 
-export const OSHI_COLORS: Record<OshiColor, { primary: string; secondary: string; text: string }> = {
-  pink: { primary: 'bg-pink-500', secondary: 'bg-pink-100', text: 'text-pink-600' },
-  blue: { primary: 'bg-blue-500', secondary: 'bg-blue-100', text: 'text-blue-600' },
-  green: { primary: 'bg-emerald-500', secondary: 'bg-emerald-100', text: 'text-emerald-600' },
-  yellow: { primary: 'bg-amber-400', secondary: 'bg-amber-100', text: 'text-amber-700' },
-  purple: { primary: 'bg-purple-500', secondary: 'bg-purple-100', text: 'text-purple-600' },
-  red: { primary: 'bg-rose-500', secondary: 'bg-rose-100', text: 'text-rose-600' },
+export const OSHI_COLORS: Record<OshiColor, { primary: string; secondary: string; text: string; hex: string }> = {
+  pink: { primary: 'bg-pink-500', secondary: 'bg-pink-100', text: 'text-pink-600', hex: '#ec4899' },
+  blue: { primary: 'bg-blue-500', secondary: 'bg-blue-100', text: 'text-blue-600', hex: '#3b82f6' },
+  green: { primary: 'bg-emerald-500', secondary: 'bg-emerald-100', text: 'text-emerald-600', hex: '#10b981' },
+  yellow: { primary: 'bg-amber-400', secondary: 'bg-amber-100', text: 'text-amber-700', hex: '#fbbf24' },
+  purple: { primary: 'bg-purple-500', secondary: 'bg-purple-100', text: 'text-purple-600', hex: '#a855f7' },
+  red: { primary: 'bg-rose-500', secondary: 'bg-rose-100', text: 'text-rose-600', hex: '#f43f5e' },
 };
 
 export const CATEGORY_LABELS: Record<string, string> = {
