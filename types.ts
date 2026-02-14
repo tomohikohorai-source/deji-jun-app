@@ -1,30 +1,49 @@
 
 export type OshiColor = 'pink' | 'blue' | 'green' | 'yellow' | 'purple' | 'red';
 
+export interface OshiItem {
+  category: SpotCategory;
+  ipName: string;
+}
+
+export interface UserPrivacy {
+  showSpots: boolean;
+  showHistory: boolean;
+  showOshis: boolean;
+}
+
 export interface UserProfile {
-  id: string;
+  id: string;      // 内部ID (Firebase UID)
+  displayId: string; // ユーザー設定ID (例: testtest)
   name: string;
   oshiColor: OshiColor;
   isAnonymous: boolean;
   age?: string;
   gender?: string;
-  prefecture: string; // マスト登録
+  prefecture: string;
   city?: string;
   oshiIp?: string;
   oshiMember?: string;
-  favoriteSpotIds?: string[]; // 気になるスポット
+  oshis?: OshiItem[];
+  favoriteSpotIds?: string[];
+  friendIds?: string[];
+  privacy?: UserPrivacy;
 }
 
 export type SpotCategory = 'artist' | 'influencer' | 'actor' | 'media' | 'sports' | 'other';
+export type SpotType = 'seichi' | 'memory';
 
 export interface Spot {
   id: string;
   name: string;
   category: SpotCategory;
+  type: SpotType; // 'seichi' (聖地) または 'memory' (思い出)
   ipName: string; 
   keywords: string[];
   description: string;
-  evidenceUrl: string;
+  evidenceUrl: string; // 聖地用
+  memoryDate?: number; // 思い出用
+  photo?: string;      // 思い出登録時の写真（Base64）
   lat: number;
   lng: number;
   isPublic: boolean;
@@ -39,13 +58,15 @@ export interface Stamp {
   spotId: string;
   timestamp: number;
   type: 'seichi' | 'memory';
-  photos?: string[];
+  photo?: string;    // チェックイン時の写真（Base64）
+  photos?: string[]; // 互換性維持用
   note?: string;
   companionIds?: string[];
   companionNames?: string[];
 }
 
 export type ExchangeType = 'wanted' | 'offer' | 'exchange';
+export type ExchangeType_Internal = 'wanted' | 'offer' | 'exchange';
 export type ExchangeMethod = 'hand' | 'mail';
 
 export interface ExchangePost {
@@ -53,13 +74,13 @@ export interface ExchangePost {
   userId: string;
   userName: string;
   type: ExchangeType;
-  ipName: string;      // IP名（必須）
-  method: ExchangeMethod; // 受け渡し方法
-  handPlace?: string;  // 手渡し場所
-  handTime?: string;   // 手渡し希望日時
-  mailPrefecture?: string; // 郵送場所（都道府県）
-  wantText?: string;   // 求
-  offerText?: string;  // 譲
+  ipName: string;      
+  method: ExchangeMethod; 
+  handPlace?: string;  
+  handTime?: string;   
+  mailPrefecture?: string; 
+  wantText?: string;   
+  offerText?: string;  
   description: string;
   area: string;
   wantImageUrl?: string;

@@ -50,20 +50,47 @@ export const getAllUsers = (): UserProfile[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const searchUsers = (query: string): UserProfile[] => {
-  if (!query) return [];
+export const getUserById = (userId: string): UserProfile | null => {
   const registry = getAllUsers();
-  const currentUser = getStoredUser();
-  return registry.filter(u => 
-    u.id !== currentUser?.id && 
-    u.name.toLowerCase().includes(query.toLowerCase())
-  ).slice(0, 5);
+  return registry.find(u => u.id === userId) || null;
+};
+
+export const getUserByDisplayId = (displayId: string): UserProfile | null => {
+  const registry = getAllUsers();
+  return registry.find(u => u.displayId === displayId) || null;
+};
+
+export const addFriend = (userId: string, friendId: string) => {
+  const user = getUserById(userId);
+  if (!user) return;
+  const friends = user.friendIds || [];
+  if (!friends.includes(friendId)) {
+    friends.push(friendId);
+    saveUser({ ...user, friendIds: friends });
+  }
+};
+
+export const removeFriend = (userId: string, friendId: string) => {
+  const user = getUserById(userId);
+  if (!user) return;
+  const friends = (user.friendIds || []).filter(id => id !== friendId);
+  saveUser({ ...user, friendIds: friends });
 };
 
 export const getSpots = (): Spot[] => {
   const data = localStorage.getItem(KEYS.SPOTS);
   const userSpots: Spot[] = data ? JSON.parse(data) : [];
-  return [...INITIAL_SPOTS, ...userSpots];
+  const allSpots = [...INITIAL_SPOTS];
+  userSpots.forEach(us => {
+    if (!allSpots.find(s => s.id === us.id)) {
+      allSpots.push(us);
+    }
+  });
+  return allSpots;
+};
+
+export const getAllSpots = (): Spot[] => {
+  return getSpots();
 };
 
 export const saveSpot = (spot: Spot) => {
@@ -73,12 +100,16 @@ export const saveSpot = (spot: Spot) => {
   localStorage.setItem(KEYS.SPOTS, JSON.stringify(spots));
 };
 
-export const reportSpot = (spotId: string, reason: string, userId: string) => {
-  const data = localStorage.getItem(KEYS.REPORTS);
-  const reports = data ? JSON.parse(data) : [];
-  reports.push({ spotId, reason, userId, timestamp: Date.now() });
-  localStorage.setItem(KEYS.REPORTS, JSON.stringify(reports));
-  console.log(`Report sent for spot ${spotId}: ${reason}`);
+export const updateSpot = (spot: Spot) => {
+  const data = localStorage.getItem(KEYS.SPOTS);
+  let spots: Spot[] = data ? JSON.parse(data) : [];
+  const index = spots.findIndex(s => s.id === spot.id);
+  if (index > -1) {
+    spots[index] = spot;
+  } else {
+    spots.push(spot);
+  }
+  localStorage.setItem(KEYS.SPOTS, JSON.stringify(spots));
 };
 
 export const getAllLocalStamps = (): Stamp[] => {
@@ -95,30 +126,7 @@ export const saveStamp = (stamp: Stamp) => {
   const data = localStorage.getItem(KEYS.STAMPS);
   const stamps: Stamp[] = data ? JSON.parse(data) : [];
   stamps.push(stamp);
-  
-  if (stamp.companionIds && stamp.companionIds.length > 0) {
-    stamp.companionIds.forEach(cId => {
-      stamps.push({
-        ...stamp,
-        id: Math.random().toString(36).substr(2, 9),
-        userId: cId,
-      });
-    });
-  }
-
   localStorage.setItem(KEYS.STAMPS, JSON.stringify(stamps));
-  
-  const user = getStoredUser();
-  if (user && stamp.userId === user.id) {
-    saveActivity({
-      id: Math.random().toString(36).substr(2, 9),
-      userId: user.id,
-      userName: user.name,
-      type: 'stamp_earned',
-      targetName: 'スポット',
-      timestamp: Date.now(),
-    });
-  }
 };
 
 export const getExchanges = (): ExchangePost[] => {
@@ -131,11 +139,4 @@ export const saveExchange = (post: ExchangePost) => {
   const posts: ExchangePost[] = data ? JSON.parse(data) : [];
   posts.unshift(post);
   localStorage.setItem(KEYS.EXCHANGES, JSON.stringify(posts));
-};
-
-export const saveActivity = (activity: Activity) => {
-  const data = localStorage.getItem(KEYS.ACTIVITIES);
-  const acts: Activity[] = data ? JSON.parse(data) : [];
-  acts.unshift(activity);
-  localStorage.setItem(KEYS.ACTIVITIES, JSON.stringify(acts.slice(0, 50)));
 };
