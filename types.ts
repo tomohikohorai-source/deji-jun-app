@@ -12,6 +12,13 @@ export interface UserPrivacy {
   showOshis: boolean;
 }
 
+export interface CookieConsent {
+  essential: boolean;
+  analytics: boolean;
+  marketing: boolean;
+  agreedAt: number;
+}
+
 export interface UserProfile {
   id: string;      // 内部ID (Firebase UID)
   displayId: string; // ユーザー設定ID (例: testtest)
@@ -41,6 +48,7 @@ export interface Spot {
   ipName: string; 
   keywords: string[];
   description: string;
+  address?: string;    // 住所
   evidenceUrl: string; // 聖地用
   memoryDate?: number; // 思い出用
   photo?: string;      // 思い出登録時の写真（Base64）
