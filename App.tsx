@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Home, 
@@ -404,6 +405,8 @@ const UserProfileView = ({ profile, currentUser, spots, stamps, onBack, onRefres
 const RankingView = ({ allUsers, allSpots, allStamps, theme }: { allUsers: UserProfile[], allSpots: Spot[], allStamps: Stamp[], theme: any }) => {
   const [filterIp, setFilterIp] = useState('');
   const [rankType, setRankType] = useState<'spots' | 'checkins'>('spots');
+  const [ipSearchQuery, setIpSearchQuery] = useState('');
+
   const ranking = useMemo(() => {
     return allUsers.map(u => {
       const userSpots = allSpots.filter(s => s.createdBy === u.id && (!filterIp || s.ipName === filterIp));
@@ -411,11 +414,38 @@ const RankingView = ({ allUsers, allSpots, allStamps, theme }: { allUsers: UserP
       return { ...u, count: rankType === 'spots' ? userSpots.length : userStamps.length };
     }).filter(u => u.count > 0).sort((a, b) => b.count - a.count);
   }, [allUsers, allSpots, allStamps, filterIp, rankType]);
-  const uniqueIps = Array.from(new Set(allSpots.map(s => s.ipName))).sort();
+
+  const uniqueIps = useMemo(() => {
+    const ips = Array.from(new Set(allSpots.map(s => s.ipName))).sort();
+    if (!ipSearchQuery) return ips;
+    return ips.filter(ip => ip.toLowerCase().includes(ipSearchQuery.toLowerCase()));
+  }, [allSpots, ipSearchQuery]);
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-end"><h2 className="text-3xl font-black tracking-tight">ランキング</h2><div className="flex bg-white p-1 rounded-2xl shadow-sm"><button onClick={() => setRankType('spots')} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${rankType === 'spots' ? `${theme.colorSet.primary} text-white` : 'text-slate-400'}`}>登録数</button><button onClick={() => setRankType('checkins')} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${rankType === 'checkins' ? `${theme.colorSet.primary} text-white` : 'text-slate-400'}`}>巡礼数</button></div></div>
-      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar"><button onClick={() => setFilterIp('')} className={`px-4 py-2 rounded-2xl text-[10px] font-black whitespace-nowrap border-2 ${!filterIp ? `${theme.colorSet.text} border-pink-500 bg-pink-50` : 'border-slate-100 bg-white text-slate-400'}`}>すべて</button>{uniqueIps.map(ip => (<button key={ip} onClick={() => setFilterIp(ip)} className={`px-4 py-2 rounded-2xl text-[10px] font-black whitespace-nowrap border-2 ${filterIp === ip ? `${theme.colorSet.text} border-pink-500 bg-pink-50` : 'border-slate-100 bg-white text-slate-400'}`}>{ip}</button>))}</div>
+      
+      <div className="space-y-3">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300">
+            <Search size={16} />
+          </div>
+          <input 
+            type="text" 
+            placeholder="作品名・アーティスト名で絞り込み..." 
+            value={ipSearchQuery} 
+            onChange={e => setIpSearchQuery(e.target.value)}
+            className="w-full p-3 pl-10 bg-white rounded-2xl font-bold text-xs shadow-sm outline-none border border-slate-100"
+          />
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+          <button onClick={() => setFilterIp('')} className={`px-4 py-2 rounded-2xl text-[10px] font-black whitespace-nowrap border-2 ${!filterIp ? `${theme.colorSet.text} border-pink-500 bg-pink-50` : 'border-slate-100 bg-white text-slate-400'}`}>すべて</button>
+          {uniqueIps.map(ip => (
+            <button key={ip} onClick={() => setFilterIp(ip)} className={`px-4 py-2 rounded-2xl text-[10px] font-black whitespace-nowrap border-2 ${filterIp === ip ? `${theme.colorSet.text} border-pink-500 bg-pink-50` : 'border-slate-100 bg-white text-slate-400'}`}>{ip}</button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-3">
         {ranking.length === 0 ? <p className="text-center py-20 text-slate-300 font-bold italic">該当データがありません</p> : (
           ranking.map((u, idx) => (
@@ -952,7 +982,7 @@ const SettingsTab = ({ user, theme, spots, refresh, onManageCookies }: any) => {
 };
 
 // --- Spot Detail Modal ---
-const SpotDetailModal = ({ spot, userLocation, onCheckin, onEdit, onClose, isMySpot, theme }: { spot: Spot, userLocation: [number, number] | null, onCheckin: (s: Spot) => void, onEdit: (s: Spot) => void, onClose: () => void, isMySpot: boolean, theme: any }) => {
+const SpotDetailModal = ({ spot, userLocation, onCheckin, onEdit, onClose, isMySpot, theme, checkinTimestamp }: { spot: Spot, userLocation: [number, number] | null, onCheckin: (s: Spot) => void, onEdit: (s: Spot) => void, onClose: () => void, isMySpot: boolean, theme: any, checkinTimestamp?: number }) => {
   const dist = userLocation ? calculateDistance(userLocation[0], userLocation[1], spot.lat, spot.lng) : null;
   const isMemory = spot.type === 'memory';
   return (
@@ -971,6 +1001,17 @@ const SpotDetailModal = ({ spot, userLocation, onCheckin, onEdit, onClose, isMyS
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 sm:space-y-8 no-scrollbar pb-32">
+          
+          {checkinTimestamp && (
+            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-3xl flex items-center gap-3 animate-in zoom-in-95">
+              <div className="bg-emerald-500 text-white p-2.5 rounded-xl flex-shrink-0"><Clock size={20}/></div>
+              <div>
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">チェックイン日時</p>
+                <p className="font-black text-sm text-slate-700">{new Date(checkinTimestamp).toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 bg-slate-50 p-4 rounded-3xl">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">IP名 / 作品名</p>
@@ -1030,7 +1071,7 @@ const SpotDetailModal = ({ spot, userLocation, onCheckin, onEdit, onClose, isMyS
 };
 
 // --- Map View Component ---
-const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, isVisible }: { spots: Spot[], stamps: Stamp[], user: UserProfile, onRefresh: () => void, editingSpot: Spot | null, setEditingSpot: (s: Spot | null) => void, isVisible: boolean }) => {
+const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, isVisible, selectedSpotForDetail, setSelectedSpotForDetail }: { spots: Spot[], stamps: Stamp[], user: UserProfile, onRefresh: () => void, editingSpot: Spot | null, setEditingSpot: (s: Spot | null) => void, isVisible: boolean, selectedSpotForDetail: Spot | null, setSelectedSpotForDetail: (s: Spot | null) => void }) => {
   const theme = useTheme();
   const mapRef = useRef<any>(null);
   const [isAdding, setIsAdding] = useState<'none' | 'spot' | 'pick_location' | 'checkin'>('none');
@@ -1042,7 +1083,6 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [checkingInSpot, setCheckingInSpot] = useState<Spot | null>(null);
   const [checkinPhoto, setCheckinPhoto] = useState<string | null>(null);
-  const [selectedSpotForDetail, setSelectedSpotForDetail] = useState<Spot | null>(null);
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [isSearchingInternal, setIsSearchingInternal] = useState(false);
 
@@ -1079,7 +1119,7 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, 
       }).addTo(map);
       marker.on('click', () => { setSelectedSpotForDetail(spot); });
     });
-  }, [spots, stamps, user.id, userLocation, theme.color]);
+  }, [spots, stamps, user.id, userLocation, theme.color, setSelectedSpotForDetail]);
 
   const handleFacilitySearch = async () => {
     if (!searchQuery) { setSearchResults([]); return; }
@@ -1202,7 +1242,6 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, 
             <div className="space-y-4">
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">名称</label><input type="text" placeholder="場所の名称" value={newSpot.name || ''} onChange={e => setNewSpot({...newSpot, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none" /></div>
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">カテゴリー</label><select value={newSpot.category} onChange={e => setNewSpot({...newSpot, category: e.target.value as SpotCategory})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold">{Object.entries(CATEGORY_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              {/* Fix: Error in App.tsx line 1206: Change newPost to newSpot */}
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">IP名</label><IpSuggestionInput value={newSpot.ipName || ''} onChange={val => setNewSpot({...newSpot, ipName: val})} category={newSpot.category} placeholder="IP名" spots={spots} /></div>
               {newSpot.type === 'seichi' ? (
                 <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><LinkIcon size={10}/> 情報源 URL</label><input type="url" placeholder="https://..." value={newSpot.evidenceUrl || ''} onChange={e => setNewSpot({...newSpot, evidenceUrl: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none text-xs" /></div>
@@ -1219,7 +1258,7 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, 
 
       {isAdding === 'checkin' && checkingInSpot && (
         <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[2000] p-6 flex flex-col items-center justify-center animate-in zoom-in-95 fade-in">
-          <div className="w-full max-sm space-y-6">
+          <div className="w-full max-w-sm space-y-6">
             <div className="text-center space-y-2"><div className={`${theme.colorSet.secondary} w-20 h-20 rounded-3xl flex items-center justify-center mx-auto text-pink-500 mb-2`}><MapPinned size={40} /></div><h2 className="text-2xl font-black">{checkingInSpot.name}</h2><p className="text-xs font-bold text-slate-400">{checkingInSpot.ipName}</p></div>
             <div className="space-y-4"><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><ImageIcon size={10}/> 写真を一緒に残す</label><div className="flex flex-col gap-3">{!checkinPhoto ? (<label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer active:bg-slate-100 transition-all"><Camera size={40} className="text-slate-300" /><span className="text-xs font-black text-slate-400">撮影・アップロード</span><input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, 'checkin')} className="hidden" /></label>) : (<div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-xl ring-4 ring-pink-50"><img src={checkinPhoto} alt="Check-in preview" className="w-full h-full object-cover" /><button onClick={() => setCheckinPhoto(null)} className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={18}/></button></div>)}</div></div></div>
             <div className="flex flex-col gap-2"><Button onClick={handleConfirmCheckin}>チェックインを完了する</Button><button onClick={() => { setIsAdding('none'); setCheckingInSpot(null); setCheckinPhoto(null); }} className="w-full py-4 font-black text-slate-400 text-sm">やめる</button></div>
@@ -1247,7 +1286,7 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, 
 };
 
 // --- Home View Component ---
-const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, searchIdInput, setSearchIdInput, refresh, setActiveTab, onSelectExchange }: any) => {
+const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, searchIdInput, setSearchIdInput, refresh, setActiveTab, onSelectExchange, onOpenSpotDetail }: any) => {
   const myRegisteredSpots = spots.filter((s: Spot) => s.createdBy === user.id);
   const myStamps = stamps.filter((s: Stamp) => s.userId === user.id);
   const mySeichiStamps = myStamps.filter((s: Stamp) => s.type === 'seichi');
@@ -1289,7 +1328,7 @@ const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, s
         <button onClick={() => setActiveTab('ranking')} className="bg-white border-2 border-slate-200 h-28 flex flex-col items-center justify-center gap-2 rounded-[2rem] font-black text-xs uppercase active:scale-95 transition-all"><Trophy size={28} className={theme.colorSet.text}/> ランキング</button>
       </div>
 
-      {/* 追加: 自分の交換掲示板投稿一覧 */}
+      {/* 自分の交換掲示板投稿一覧 */}
       <div>
         <h3 className="text-lg font-black mb-4 flex items-center gap-2"><Repeat size={20} className={theme.colorSet.text}/> あなたの交換募集</h3>
         {myExchanges.length === 0 ? (
@@ -1319,9 +1358,24 @@ const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, s
         <h3 className="text-lg font-black mb-4 flex items-center gap-2"><MapIcon size={20} className={theme.colorSet.text}/> 登録した聖地</h3>
         {Object.keys(mySpotsByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">まだ聖地を登録していません</p> : (
           <div className="space-y-6">{(Object.entries(mySpotsByIp) as [string, Spot[]][]).map(([ip, ipSpots]) => (
-            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{ipSpots.map(spot => (
-              <div key={spot.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex justify-between items-center"><div className="flex-1"><p className="text-[10px] font-black text-slate-300 uppercase">{CATEGORY_LABELS[spot.category]}</p><h4 className="font-black text-sm">{spot.name}</h4>{spot.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-square w-20"><img src={spot.photo} alt={spot.name} className="w-full h-full object-cover" /></div>)}</div><button onClick={() => onEditSpot(spot)} className="p-3 bg-slate-50 rounded-2xl text-slate-400 active:scale-90 transition-all"><Edit3 size={16}/></button></div>
-            ))}</div>
+            <div key={ip} className="space-y-3">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>
+              {ipSpots.map(spot => (
+                <div key={spot.id} className="bg-white rounded-3xl shadow-sm border border-slate-50 overflow-hidden active:scale-95 transition-all">
+                  <button 
+                    onClick={() => onOpenSpotDetail(spot)}
+                    className="w-full text-left p-4 flex justify-between items-center"
+                  >
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black text-slate-300 uppercase">{CATEGORY_LABELS[spot.category]}</p>
+                      <h4 className="font-black text-sm">{spot.name}</h4>
+                      {spot.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-square w-20"><img src={spot.photo} alt={spot.name} className="w-full h-full object-cover" /></div>)}
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 ml-2" />
+                  </button>
+                </div>
+              ))}
+            </div>
           ))}</div>
         )}
       </div>
@@ -1329,9 +1383,25 @@ const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, s
         <h3 className="text-lg font-black mb-4 flex items-center gap-2"><History size={20} className={theme.colorSet.text}/> チェックイン履歴</h3>
         {Object.keys(myHistoryByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">チェックインの記録がありません</p> : (
           <div className="space-y-6">{(Object.entries(myHistoryByIp) as [string, any[]][]).map(([ip, stamps]) => (
-            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{stamps.map(stamp => (
-              <div key={stamp.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex gap-4"><div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center flex-shrink-0 font-black italic">✓</div><div className="flex-1"><h4 className="font-black text-sm">{stamp.spot?.name || '削除されたスポット'}</h4><p className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {new Date(stamp.timestamp).toLocaleString()}</p>{stamp.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-video w-full"><img src={stamp.photo} alt="visit" className="w-full h-full object-cover" /></div>)}</div></div>
-            ))}</div>
+            <div key={ip} className="space-y-3">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>
+              {stamps.map(stamp => (
+                <div key={stamp.id} className="bg-white rounded-3xl shadow-sm border border-slate-50 overflow-hidden active:scale-95 transition-all">
+                  <button 
+                    onClick={() => onOpenSpotDetail(stamp.spot, stamp.timestamp)}
+                    className="w-full text-left p-4 flex gap-4"
+                  >
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center flex-shrink-0 font-black italic">✓</div>
+                    <div className="flex-1 overflow-hidden">
+                      <h4 className="font-black text-sm truncate">{stamp.spot?.name || '削除されたスポット'}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {new Date(stamp.timestamp).toLocaleString()}</p>
+                      {stamp.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-video w-full"><img src={stamp.photo} alt="visit" className="w-full h-full object-cover" /></div>)}
+                    </div>
+                    <div className="flex items-center"><ChevronRight size={16} className="text-slate-300" /></div>
+                  </button>
+                </div>
+              ))}
+            </div>
           ))}</div>
         )}
       </div>
@@ -1352,7 +1422,9 @@ const MainAppContent = ({ user, setUser }: any) => {
   const [showAdvancedCookies, setShowAdvancedCookies] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [targetExchangeId, setTargetExchangeId] = useState<string | null>(null); // 追加: 特定の投稿へのジャンプ用
+  const [targetExchangeId, setTargetExchangeId] = useState<string | null>(null); 
+  const [selectedSpotForDetail, setSelectedSpotForDetail] = useState<Spot | null>(null);
+  const [activeCheckinTimestamp, setActiveCheckinTimestamp] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('oshikatsu_cookie_consent');
@@ -1416,6 +1488,10 @@ const MainAppContent = ({ user, setUser }: any) => {
                     setTargetExchangeId(id);
                     setActiveTab('exchange');
                   }}
+                  onOpenSpotDetail={(spot: Spot, timestamp?: number) => {
+                    setSelectedSpotForDetail(spot);
+                    setActiveCheckinTimestamp(timestamp || null);
+                  }}
                 />
               )}
               
@@ -1428,6 +1504,11 @@ const MainAppContent = ({ user, setUser }: any) => {
                   editingSpot={editingSpot} 
                   setEditingSpot={setEditingSpot} 
                   isVisible={activeTab === 'map'}
+                  selectedSpotForDetail={selectedSpotForDetail}
+                  setSelectedSpotForDetail={(s: Spot | null) => {
+                    setSelectedSpotForDetail(s);
+                    if (!s) setActiveCheckinTimestamp(null);
+                  }}
                 />
               </div>
 
@@ -1454,7 +1535,7 @@ const MainAppContent = ({ user, setUser }: any) => {
             { id: 'exchange', icon: Repeat, label: '掲示板' },
             { id: 'settings', icon: Settings, label: '設定' },
           ].map((item: any) => (
-            <button key={item.id} onClick={() => { setActiveTab(item.id); setViewingProfile(null); if(item.id !== 'map') setEditingSpot(null); }} className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-[1.5rem] transition-all ${activeTab === item.id ? `${theme.colorSet.secondary} ${theme.colorSet.text} scale-110` : 'text-slate-400'}`}>
+            <button key={item.id} onClick={() => { setActiveTab(item.id); setViewingProfile(null); if(item.id !== 'map') setEditingSpot(null); setSelectedSpotForDetail(null); }} className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-[1.5rem] transition-all ${activeTab === item.id ? `${theme.colorSet.secondary} ${theme.colorSet.text} scale-110` : 'text-slate-400'}`}>
               <item.icon size={activeTab === item.id ? 22 : 20} strokeWidth={2.5} /><span className="text-[9px] font-black uppercase tracking-tighter">{item.label}</span>
             </button>
           ))}
@@ -1471,6 +1552,30 @@ const MainAppContent = ({ user, setUser }: any) => {
           onClose={() => setShowAdvancedCookies(false)} 
         />}
         {showNotifications && <NotificationModal user={user} onClose={() => setShowNotifications(false)} onRefresh={refresh} />}
+
+        {/* 共通の聖地詳細モーダル */}
+        {selectedSpotForDetail && activeTab !== 'map' && (
+          <SpotDetailModal 
+            spot={selectedSpotForDetail} 
+            userLocation={null} 
+            onClose={() => {
+              setSelectedSpotForDetail(null);
+              setActiveCheckinTimestamp(null);
+            }} 
+            onCheckin={(s) => { 
+              setActiveTab('map');
+              setSelectedSpotForDetail(s);
+            }}
+            onEdit={(s) => {
+              setEditingSpot(s);
+              setActiveTab('map');
+              setSelectedSpotForDetail(null);
+            }}
+            isMySpot={selectedSpotForDetail.createdBy === user.id}
+            theme={theme}
+            checkinTimestamp={activeCheckinTimestamp || undefined}
+          />
+        )}
       </div>
     </ThemeContext.Provider>
   );
