@@ -74,8 +74,26 @@ export interface Stamp {
 }
 
 export type ExchangeType = 'wanted' | 'offer' | 'exchange';
-export type ExchangeType_Internal = 'wanted' | 'offer' | 'exchange';
 export type ExchangeMethod = 'hand' | 'mail';
+export type ExchangeRequestStatus = 'pending' | 'accepted' | 'declined';
+
+export interface ExchangeComment {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: number;
+}
+
+export interface ExchangeRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  method: ExchangeMethod;
+  location?: string;
+  status: ExchangeRequestStatus;
+  createdAt: number;
+}
 
 export interface ExchangePost {
   id: string;
@@ -83,16 +101,30 @@ export interface ExchangePost {
   userName: string;
   type: ExchangeType;
   ipName: string;      
+  itemName: string; // 追加: アイテム名
   method: ExchangeMethod; 
   handPlace?: string;  
-  handTime?: string;   
-  mailPrefecture?: string; 
-  wantText?: string;   
-  offerText?: string;  
   description: string;
   area: string;
-  wantImageUrl?: string;
-  offerImageUrl?: string;
+  photo?: string; // 写真（Base64）
+  likes: string[]; // ユーザーIDの配列
+  comments: ExchangeComment[];
+  requests: ExchangeRequest[];
+  acceptedUserId?: string; // 受託されたユーザーID
+  createdAt: number;
+}
+
+export type NotificationType = 'like' | 'comment' | 'request' | 'request_accepted' | 'request_declined';
+
+export interface AppNotification {
+  id: string;
+  targetUserId: string;
+  senderName: string;
+  type: NotificationType;
+  postId: string;
+  message: string;
+  isRead: boolean;
+  isActioned: boolean; // 申請などのアクションが必要な通知用
   createdAt: number;
 }
 

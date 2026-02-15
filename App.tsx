@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Home, 
@@ -42,9 +41,14 @@ import {
   Image as ImageIcon,
   ShieldCheck,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  MessageCircle,
+  Bell,
+  Send,
+  UserX,
+  Package
 } from 'lucide-react';
-import { UserProfile, OshiColor, Spot, Stamp, ExchangePost, SpotCategory, ExchangeType, ExchangeMethod, OshiItem, SpotType, CookieConsent } from './types';
+import { UserProfile, OshiColor, Spot, Stamp, ExchangePost, SpotCategory, ExchangeType, ExchangeMethod, OshiItem, SpotType, CookieConsent, AppNotification, ExchangeRequest, ExchangeComment } from './types';
 import { OSHI_COLORS, CHECKIN_RADIUS_METERS, CATEGORY_LABELS, PREFECTURES } from './constants';
 import * as store from './services/store';
 import { TERMS_OF_SERVICE, PRIVACY_POLICY } from './legal';
@@ -231,6 +235,74 @@ const AdvancedCookieModal = ({ consent, onSave, onClose }: { consent: CookieCons
   );
 };
 
+// --- Notification Modal ---
+const NotificationModal = ({ user, onClose, onRefresh }: { user: UserProfile, onClose: () => void, onRefresh: () => void }) => {
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  useEffect(() => {
+    setNotifications(store.getNotifications(user.id));
+  }, []);
+
+  const handleClear = () => {
+    store.clearReadNotifications(user.id);
+    setNotifications(store.getNotifications(user.id));
+    onRefresh();
+  };
+
+  const handleRead = (n: AppNotification) => {
+    if (n.type !== 'request' || n.isActioned) {
+      store.markNotificationRead(n.id);
+      setNotifications(store.getNotifications(user.id));
+      onRefresh();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[6000] bg-slate-900/60 backdrop-blur-sm flex flex-col justify-end animate-in fade-in">
+      <div className="bg-white w-full max-h-[80vh] rounded-t-[2.5rem] overflow-hidden flex flex-col animate-in slide-in-from-bottom-full">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+          <h3 className="text-xl font-black flex items-center gap-2"><Bell size={20} className="text-pink-500" /> 通知</h3>
+          <div className="flex gap-2">
+            <button onClick={handleClear} className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-1 bg-slate-50 rounded-full">既読を整理</button>
+            <button onClick={onClose} className="p-2 bg-slate-50 rounded-full"><X size={20}/></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+          {notifications.length === 0 ? (
+            <div className="py-20 text-center space-y-3">
+              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200"><Bell size={32}/></div>
+              <p className="text-sm font-bold text-slate-300">通知はありません</p>
+            </div>
+          ) : (
+            notifications.map(n => (
+              <div 
+                key={n.id} 
+                onClick={() => handleRead(n)}
+                className={`p-4 rounded-[1.5rem] transition-all flex gap-4 items-start ${n.isRead ? 'bg-slate-50 opacity-60' : 'bg-white shadow-sm border border-pink-50'}`}
+              >
+                <div className={`p-2 rounded-xl flex-shrink-0 ${n.type.includes('request') ? 'bg-blue-50 text-blue-500' : 'bg-pink-50 text-pink-500'}`}>
+                  {n.type === 'like' ? <Heart size={16} fill="currentColor"/> : n.type === 'comment' ? <MessageCircle size={16}/> : <Repeat size={16}/>}
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-slate-700 leading-snug">
+                    <span className="text-pink-600">@{n.senderName}</span> さんが{n.message}
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">{new Date(n.createdAt).toLocaleString()}</p>
+                  {n.type === 'request' && !n.isActioned && (
+                    <div className="mt-2 text-[10px] font-black text-amber-500 flex items-center gap-1">
+                      <Sparkles size={10}/> アクションが必要です
+                    </div>
+                  )}
+                </div>
+                {!n.isRead && <div className="w-2 h-2 bg-pink-500 rounded-full mt-2"></div>}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Legal Modal Component ---
 const LegalModal = ({ title, content, onClose }: { title: string, content: string, onClose: () => void }) => (
   <div className="fixed inset-0 z-[3000] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
@@ -362,25 +434,243 @@ const RankingView = ({ allUsers, allSpots, allStamps, theme }: { allUsers: UserP
   );
 };
 
-// --- Exchange View Component (Fix for line 516 error) ---
-const ExchangeView = ({ user, theme, spots }: any) => {
+// --- Exchange Detail / Interaction Overlay ---
+const ExchangeInteractionModal = ({ post, user, theme, onClose, onUpdate }: { post: ExchangePost, user: UserProfile, theme: any, onClose: () => void, onUpdate: () => void }) => {
+  const [comment, setComment] = useState('');
+  const [requestMode, setRequestMode] = useState(false);
+  const [reqMethod, setReqMethod] = useState<ExchangeMethod>('hand');
+  const [reqLoc, setReqLoc] = useState('');
+  const isOwner = post.userId === user.id;
+  const isLiked = post.likes.includes(user.id);
+
+  const handleLike = () => {
+    const nextLikes = isLiked ? post.likes.filter(id => id !== user.id) : [...post.likes, user.id];
+    const nextPost = { ...post, likes: nextLikes };
+    store.updateExchange(nextPost);
+    if (!isLiked && !isOwner) {
+      store.saveNotification({
+        id: Math.random().toString(36).substr(2, 9),
+        targetUserId: post.userId,
+        senderName: user.name,
+        type: 'like',
+        postId: post.id,
+        message: 'あなたの投稿にいいねしました',
+        isRead: false,
+        isActioned: false,
+        createdAt: Date.now()
+      });
+    }
+    onUpdate();
+  };
+
+  const handleComment = () => {
+    if (!comment.trim()) return;
+    const newComment: ExchangeComment = { id: Math.random().toString(36).substr(2, 9), userId: user.id, userName: user.name, text: comment, createdAt: Date.now() };
+    const nextPost = { ...post, comments: [...post.comments, newComment] };
+    store.updateExchange(nextPost);
+    if (!isOwner) {
+      store.saveNotification({
+        id: Math.random().toString(36).substr(2, 9),
+        targetUserId: post.userId,
+        senderName: user.name,
+        type: 'comment',
+        postId: post.id,
+        message: 'あなたの投稿にコメントしました',
+        isRead: false,
+        isActioned: false,
+        createdAt: Date.now()
+      });
+    }
+    setComment('');
+    onUpdate();
+  };
+
+  const handleRequest = () => {
+    if (reqMethod === 'hand' && !reqLoc.trim()) return alert('手渡しの場合は場所を入力してください');
+    const newReq: ExchangeRequest = { id: Math.random().toString(36).substr(2, 9), userId: user.id, userName: user.name, method: reqMethod, location: reqLoc, status: 'pending', createdAt: Date.now() };
+    const nextPost = { ...post, requests: [...post.requests, newReq] };
+    store.updateExchange(nextPost);
+    store.saveNotification({
+      id: Math.random().toString(36).substr(2, 9),
+      targetUserId: post.userId,
+      senderName: user.name,
+      type: 'request',
+      postId: post.id,
+      message: '交換の申請を送りました',
+      isRead: false,
+      isActioned: false,
+      createdAt: Date.now()
+    });
+    setRequestMode(false);
+    onUpdate();
+    alert('申請を送りました！');
+  };
+
+  const handleAction = (reqId: string, status: 'accepted' | 'declined') => {
+    const nextRequests = post.requests.map(r => r.id === reqId ? { ...r, status } : r);
+    const targetReq = post.requests.find(r => r.id === reqId);
+    let nextPost = { ...post, requests: nextRequests };
+    if (status === 'accepted' && targetReq) {
+      nextPost.acceptedUserId = targetReq.userId;
+      store.markNotificationActioned(post.id, 'request');
+    }
+    store.updateExchange(nextPost);
+    if (targetReq) {
+      store.saveNotification({
+        id: Math.random().toString(36).substr(2, 9),
+        targetUserId: targetReq.userId,
+        senderName: user.name,
+        type: status === 'accepted' ? 'request_accepted' : 'request_declined',
+        postId: post.id,
+        message: status === 'accepted' ? 'あなたの交換申請を承認しました！' : 'あなたの交換申請を見送りました',
+        isRead: false,
+        isActioned: false,
+        createdAt: Date.now()
+      });
+    }
+    onUpdate();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[5000] bg-slate-900/60 backdrop-blur-md flex flex-col justify-end">
+      <div className="bg-white w-full max-h-[90vh] rounded-t-[3rem] overflow-hidden flex flex-col animate-in slide-in-from-bottom-full">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+          <h3 className="text-xl font-black truncate">{post.itemName} ({post.ipName})</h3>
+          <button onClick={onClose} className="p-2 bg-slate-50 rounded-full"><X size={20}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar pb-32">
+          {post.photo && <img src={post.photo} className="w-full aspect-video object-cover rounded-3xl shadow-sm" />}
+          
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${post.type === 'wanted' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>
+                {post.type === 'wanted' ? '譲求' : post.type === 'offer' ? '譲渡' : '交換'}
+              </span>
+              <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{post.area}</span>
+            </div>
+            <h4 className="font-black text-lg">{post.itemName}</h4>
+            <p className="text-sm font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{post.description}</p>
+          </div>
+
+          <div className="flex items-center gap-6 pt-4 border-t border-slate-50">
+            <button onClick={handleLike} className={`flex items-center gap-2 font-black text-sm transition-all ${isLiked ? 'text-pink-500 scale-110' : 'text-slate-300'}`}>
+              <Heart size={20} fill={isLiked ? "currentColor" : "none"}/> {post.likes.length}
+            </button>
+            <div className="flex items-center gap-2 font-black text-sm text-slate-300">
+              <MessageCircle size={20}/> {post.comments.length}
+            </div>
+            {!isOwner && !post.acceptedUserId && (
+              <button onClick={() => setRequestMode(true)} className={`${theme.colorSet.primary} text-white px-6 py-2 rounded-2xl font-black text-xs ml-auto shadow-lg active:scale-95 transition-all`}>申請する</button>
+            )}
+            {post.acceptedUserId && (
+              <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-2xl font-black text-xs ml-auto flex items-center gap-1"><UserCheck size={14}/> 受託済み</div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">コメント ({post.comments.length})</h4>
+            <div className="space-y-3">
+              {post.comments.map(c => (
+                <div key={c.id} className="bg-slate-50 p-4 rounded-[1.5rem] space-y-1">
+                  <div className="flex justify-between items-center"><span className="text-[10px] font-black text-pink-600">@{c.userName}</span><span className="text-[8px] text-slate-300">{new Date(c.createdAt).toLocaleDateString()}</span></div>
+                  <p className="text-xs font-bold text-slate-600">{c.text}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input type="text" placeholder="コメントを入力..." value={comment} onChange={e => setComment(e.target.value)} className="flex-1 p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none" />
+              <button onClick={handleComment} className="p-4 bg-slate-100 rounded-2xl text-slate-400"><Send size={18}/></button>
+            </div>
+          </div>
+
+          {isOwner && post.requests.length > 0 && (
+            <div className="space-y-4 pt-6 border-t border-slate-100">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">届いている申請</h4>
+              <div className="space-y-3">
+                {post.requests.map(r => (
+                  <div key={r.id} className={`p-4 rounded-[1.5rem] border ${r.status === 'accepted' ? 'border-emerald-200 bg-emerald-50' : 'border-slate-100 bg-slate-50'}`}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400">申請者: <span className="text-pink-600">@{r.userName}</span></p>
+                        <p className="text-xs font-bold text-slate-600 mt-1">{r.method === 'hand' ? `手渡し希望 (${r.location})` : '郵送希望'}</p>
+                      </div>
+                      {r.status === 'pending' ? (
+                        <div className="flex gap-2">
+                          <button onClick={() => handleAction(r.id, 'declined')} className="p-2 bg-white text-rose-400 rounded-xl"><UserX size={18}/></button>
+                          <button onClick={() => handleAction(r.id, 'accepted')} className="p-2 bg-emerald-500 text-white rounded-xl"><UserCheck size={18}/></button>
+                        </div>
+                      ) : (
+                        <span className={`text-[10px] font-black uppercase ${r.status === 'accepted' ? 'text-emerald-500' : 'text-slate-300'}`}>{r.status === 'accepted' ? '承認済み' : '見送り'}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {requestMode && (
+        <div className="fixed inset-0 z-[6000] bg-white p-8 space-y-8 animate-in zoom-in-95">
+          <div className="flex justify-between items-center"><h3 className="text-xl font-black">交換申請</h3><button onClick={() => setRequestMode(false)}><X size={24}/></button></div>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">交換方法</label>
+              <div className="flex bg-slate-100 p-1 rounded-2xl">
+                <button onClick={() => setReqMethod('hand')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${reqMethod === 'hand' ? 'bg-white shadow-sm' : 'text-slate-400'}`}>手渡し</button>
+                <button onClick={() => setReqMethod('mail')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${reqMethod === 'mail' ? 'bg-white shadow-sm' : 'text-slate-400'}`}>郵送</button>
+              </div>
+            </div>
+            {reqMethod === 'hand' && (
+              <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">希望場所</label><input type="text" placeholder="例: 〇〇駅周辺, ライブ会場..." value={reqLoc} onChange={e => setReqLoc(e.target.value)} className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" /></div>
+            )}
+            <p className="text-xs text-slate-400 font-bold leading-relaxed bg-slate-50 p-4 rounded-2xl">※申請が承認されると、あなたと出品者のみがこの投稿を閲覧できるようになります。</p>
+            <Button onClick={handleRequest}>申請を送信する</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Exchange View Component ---
+const ExchangeView = ({ user, theme, spots, targetExchangeId, setTargetExchangeId }: any) => {
   const [posts, setPosts] = useState<ExchangePost[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [activePost, setActivePost] = useState<ExchangePost | null>(null);
   const [newPost, setNewPost] = useState<Partial<ExchangePost>>({
     type: 'wanted',
     method: 'hand',
     ipName: '',
+    itemName: '',
     description: '',
     area: user.prefecture,
   });
 
+  const refreshPosts = () => {
+    const all = store.getExchanges();
+    // 承認済み投稿のアクセス制限: 投稿者または承認された申請者のみ
+    setPosts(all.filter(p => !p.acceptedUserId || p.userId === user.id || p.acceptedUserId === user.id));
+  };
+
   useEffect(() => {
-    setPosts(store.getExchanges());
+    refreshPosts();
   }, []);
 
+  useEffect(() => {
+    if (targetExchangeId && posts.length > 0) {
+      const found = posts.find(p => p.id === targetExchangeId);
+      if (found) {
+        setActivePost(found);
+        setTargetExchangeId(null); // 開いた後はクリア
+      }
+    }
+  }, [targetExchangeId, posts]);
+
   const handleSave = () => {
-    if (!newPost.ipName || !newPost.description) {
-      alert('入力内容が不足しています');
+    if (!newPost.ipName || !newPost.itemName || !newPost.description) {
+      alert('「作品名」「アイテム名」「詳細」は必須です');
       return;
     }
     const post: ExchangePost = {
@@ -388,13 +678,26 @@ const ExchangeView = ({ user, theme, spots }: any) => {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.id,
       userName: user.name,
+      likes: [],
+      comments: [],
+      requests: [],
       createdAt: Date.now(),
     } as ExchangePost;
     store.saveExchange(post);
-    setPosts(store.getExchanges());
+    refreshPosts();
     setIsAdding(false);
-    setNewPost({ type: 'wanted', method: 'hand', ipName: '', description: '', area: user.prefecture });
+    setNewPost({ type: 'wanted', method: 'hand', ipName: '', itemName: '', description: '', area: user.prefecture });
     alert('投稿しました！');
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    try {
+      const compressed = await compressImage(e.target.files[0]);
+      setNewPost({ ...newPost, photo: compressed });
+    } catch (err) {
+      alert('画像の読み込みに失敗しました');
+    }
   };
 
   return (
@@ -412,26 +715,31 @@ const ExchangeView = ({ user, theme, spots }: any) => {
             <div className="w-20 h-20 bg-slate-100 rounded-[2rem] flex items-center justify-center mx-auto text-slate-300">
               <Repeat size={40} />
             </div>
-            <p className="text-slate-300 font-bold italic">まだ投稿がありません</p>
+            <p className="text-slate-300 font-bold italic">表示できる投稿がありません</p>
           </div>
         ) : (
           posts.map(post => (
-            <div key={post.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 space-y-3">
+            <div key={post.id} onClick={() => setActivePost(post)} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 space-y-4 active:scale-[0.98] transition-all">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-2">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
                     post.type === 'wanted' ? 'bg-rose-100 text-rose-600' : 
                     post.type === 'offer' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
                   }`}>
-                    {post.type === 'wanted' ? '譲求' : post.type === 'offer' ? '譲渡' : '交換'}
+                    {post.type === 'wanted' ? '求む' : post.type === 'offer' ? '譲る' : '交換'}
                   </span>
                   <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{post.area}</span>
+                  {post.acceptedUserId && <span className="bg-emerald-50 text-emerald-500 text-[8px] font-black px-2 py-0.5 rounded-full border border-emerald-100">取引中</span>}
                 </div>
                 <div className="text-slate-300"><Clock size={14} /></div>
               </div>
-              <div>
-                <h4 className="font-black text-lg">{post.ipName}</h4>
-                <p className="text-sm font-bold text-slate-600 leading-relaxed mt-1">{post.description}</p>
+              <div className="flex gap-4">
+                {post.photo && <img src={post.photo} className="w-20 h-20 rounded-2xl object-cover flex-shrink-0" />}
+                <div className="flex-1 overflow-hidden">
+                  <h4 className="font-black text-lg truncate">{post.itemName}</h4>
+                  <p className="text-[10px] font-bold text-slate-400 mb-1">{post.ipName}</p>
+                  <p className="text-sm font-bold text-slate-600 leading-relaxed line-clamp-2">{post.description}</p>
+                </div>
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                 <div className="flex items-center gap-2">
@@ -440,12 +748,9 @@ const ExchangeView = ({ user, theme, spots }: any) => {
                   </div>
                   <span className="text-xs font-bold text-slate-400">{post.userName}</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  {post.method === 'hand' ? (
-                    <div className="flex items-center gap-1 text-amber-500 font-black text-[10px]"><HandHelping size={14}/> 手渡し</div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-blue-500 font-black text-[10px]"><Truck size={14}/> 郵送</div>
-                  )}
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1 text-pink-500 font-black text-[10px]"><Heart size={14} fill={post.likes.includes(user.id) ? "currentColor" : "none"}/> {post.likes.length}</div>
+                  <div className="flex items-center gap-1 text-slate-400 font-black text-[10px]"><MessageCircle size={14}/> {post.comments.length}</div>
                 </div>
               </div>
             </div>
@@ -456,10 +761,29 @@ const ExchangeView = ({ user, theme, spots }: any) => {
       {isAdding && (
         <div className="fixed inset-0 z-[5000] bg-white p-6 overflow-y-auto no-scrollbar">
           <div className="flex justify-between items-center mb-8">
-            <h3 className="text-xl font-black">投稿を作成</h3>
+            <h3 className="text-xl font-black">募集を投稿</h3>
             <button onClick={() => setIsAdding(false)} className="p-2 bg-slate-50 rounded-full"><X size={24}/></button>
           </div>
           <div className="space-y-6">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">作品名</label>
+              <IpSuggestionInput value={newPost.ipName || ''} onChange={val => setNewPost({...newPost, ipName: val})} placeholder="例: Aimer, ガルパン..." spots={spots} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">アイテム名</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300">
+                  <Package size={18} />
+                </div>
+                <input 
+                  type="text" 
+                  placeholder="例: 会場限定缶バッジ, A賞アクスタ..." 
+                  value={newPost.itemName} 
+                  onChange={e => setNewPost({...newPost, itemName: e.target.value})}
+                  className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none transition-all"
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">募集の種類</label>
               <div className="flex bg-slate-100 p-1 rounded-2xl">
@@ -470,13 +794,23 @@ const ExchangeView = ({ user, theme, spots }: any) => {
                 ))}
               </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">対象のIP・作品</label>
-              <IpSuggestionInput value={newPost.ipName || ''} onChange={val => setNewPost({...newPost, ipName: val})} placeholder="例: Aimer, ガルパン..." spots={spots} />
+            <div className="space-y-2">
+               <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest flex items-center gap-1"><ImageIcon size={12}/> 写真 (1枚)</label>
+               <label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all">
+                  <Camera size={32} className="text-slate-300" />
+                  <span className="text-[10px] font-black text-slate-400 uppercase">写真を登録</span>
+                  <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+               </label>
+               {newPost.photo && (
+                 <div className="relative w-full aspect-video rounded-2xl overflow-hidden mt-2">
+                   <img src={newPost.photo} className="w-full h-full object-cover" />
+                   <button onClick={() => setNewPost({...newPost, photo: undefined})} className="absolute top-2 right-2 p-1.5 bg-white/80 rounded-full text-rose-500"><X size={14}/></button>
+                 </div>
+               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-1">
-                 <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">交換方法</label>
+                 <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">メイン方法</label>
                  <select value={newPost.method} onChange={e => setNewPost({...newPost, method: e.target.value as ExchangeMethod})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none outline-none">
                    <option value="hand">手渡し</option>
                    <option value="mail">郵送</option>
@@ -491,268 +825,28 @@ const ExchangeView = ({ user, theme, spots }: any) => {
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">募集詳細</label>
-              <textarea placeholder="詳しい条件やアイテム名を記入してください" value={newPost.description} onChange={e => setNewPost({...newPost, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none h-40 resize-none" />
+              <textarea placeholder="詳しい条件を記入してください" value={newPost.description} onChange={e => setNewPost({...newPost, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none h-40 resize-none" />
             </div>
             <Button onClick={handleSave}>投稿を公開する</Button>
             <button onClick={() => setIsAdding(false)} className="w-full py-4 font-black text-slate-300 text-sm">キャンセル</button>
           </div>
         </div>
       )}
-    </div>
-  );
-};
 
-// --- Auth / Initial Component ---
-const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) => void }) => {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [formData, setFormData] = useState({ loginId: '', displayId: '', password: '', age: '', gender: '', prefecture: '東京都', oshiColor: 'pink' as OshiColor, oshis: [] as string[], terms: false });
-  const [oshiInput, setOshiInput] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [legalView, setLegalView] = useState<'none' | 'tos' | 'privacy'>('none');
-  const addOshi = () => { if (oshiInput.trim() && formData.oshis.length < 5) { setFormData({ ...formData, oshis: [...formData.oshis, oshiInput.trim()] }); setOshiInput(''); } };
-  const removeOshi = (index: number) => { const next = [...formData.oshis]; next.splice(index, 1); setFormData({ ...formData, oshis: next }); };
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (formData.loginId.length < 6 || formData.password.length < 6) { setError('IDとパスワードは6文字以上で入力してください'); return; }
-    if (mode === 'signup' && !formData.displayId) { setError('ユーザーIDを入力してください'); return; }
-    if (mode === 'signup' && !formData.terms) { setError('利用規約とプライバシーポリシーに同意してください'); return; }
-    setLoading(true);
-    const email = `${formData.loginId.toLowerCase()}@dejijun.app`;
-    try {
-      if (mode === 'signup') {
-        if (store.getUserByDisplayId(formData.displayId)) { setError('そのユーザーIDは既に使用されています'); setLoading(false); return; }
-        const cred = await createUserWithEmailAndPassword(fbAuth, email, formData.password);
-        const newUser: UserProfile = { id: cred.user.uid, displayId: formData.displayId, name: formData.loginId, oshiColor: formData.oshiColor, isAnonymous: false, prefecture: formData.prefecture, age: formData.age, gender: formData.gender, favoriteSpotIds: [], oshis: formData.oshis.map(name => ({ category: 'other', ipName: name })), friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } };
-        store.saveUser(newUser); onLoginSuccess(newUser);
-      } else {
-        const cred = await signInWithEmailAndPassword(fbAuth, email, formData.password);
-        let user = store.getStoredUser();
-        if (!user || user.id !== cred.user.uid) { user = { id: cred.user.uid, displayId: formData.loginId, name: formData.loginId || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都', favoriteSpotIds: [], oshis: [], friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } }; store.saveUser(user); }
-        onLoginSuccess(user);
-      }
-    } catch (e: any) { setError('ログインに失敗しました。内容を確認してください。'); } finally { setLoading(false); }
-  };
-  return (
-    <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
-      <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 shadow-2xl relative my-auto">
-        <h1 className="text-3xl font-black text-center text-slate-800 mb-8 tracking-tighter italic">デジ<span className="text-pink-600">巡</span></h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input type="text" placeholder="ログイン名 (英数字)" value={formData.loginId} onChange={e => setFormData({...formData, loginId: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
-          {mode === 'signup' && (
-            <div className="space-y-1">
-              <p className="text-[10px] font-black text-slate-400 uppercase px-2">ユーザーID (@ID)</p>
-              <input type="text" placeholder="例: testtest" value={formData.displayId} onChange={e => setFormData({...formData, displayId: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
-            </div>
-          )}
-          <input type="password" placeholder="パスワード" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
-          {mode === 'signup' && (
-            <div className="space-y-6 pt-4 border-t border-slate-100">
-              <div className="space-y-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase px-2">推しカラー設定</p>
-                <div className="grid grid-cols-6 gap-2">
-                  {(Object.entries(OSHI_COLORS) as [OshiColor, any][]).map(([key, value]) => (<button key={key} type="button" onClick={() => setFormData({...formData, oshiColor: key})} className={`w-full aspect-square rounded-xl ${value.primary} ${formData.oshiColor === key ? 'ring-4 ring-offset-2 ring-slate-200' : ''}`} />))}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase px-2">推しを登録 (最大5つ)</p>
-                <div className="flex gap-2">
-                  <input type="text" placeholder="アーティスト・作品名" value={oshiInput} onChange={e => setOshiInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addOshi())} className="flex-1 p-3 bg-slate-50 border-2 border-transparent rounded-xl outline-none focus:border-pink-400 font-bold text-sm" />
-                  <button type="button" onClick={addOshi} disabled={formData.oshis.length >= 5} className="bg-pink-500 text-white p-3 rounded-xl disabled:opacity-50"><Plus size={20}/></button>
-                </div>
-                <div className="flex flex-wrap gap-2">{formData.oshis.map((name, i) => (<div key={i} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1">{name} <button type="button" onClick={() => removeOshi(i)} className="text-slate-400 hover:text-rose-500"><X size={12}/></button></div>))}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select value={formData.prefecture} onChange={e => setFormData({...formData, prefecture: e.target.value})} className="p-4 bg-slate-50 rounded-2xl font-bold">{PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}</select>
-                <select value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="p-4 bg-slate-50 rounded-2xl font-bold"><option value="">性別（任意）</option><option value="male">男性</option><option value="female">女性</option><option value="other">その他</option></select>
-              </div>
-              <select value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold"><option value="">年代（任意）</option><option value="10代">10代</option><option value="20代">20代</option><option value="30代">30代</option><option value="40代">40代</option><option value="50代">50代</option><option value="60代以上">60代以上</option></select>
-              <div className="space-y-2 p-2 bg-slate-50 rounded-2xl"><label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={formData.terms} onChange={e => setFormData({...formData, terms: e.target.checked})} className="w-5 h-5 accent-pink-500 rounded" /><span className="text-xs font-bold text-slate-500 leading-tight"><button type="button" onClick={() => setLegalView('tos')} className="text-pink-600 underline">利用規約</button>と<button type="button" onClick={() => setLegalView('privacy')} className="text-pink-600 underline ml-1">プライバシーポリシー</button>に同意する</span></label></div>
-            </div>
-          )}
-          {error && <p className="text-rose-500 text-xs font-bold text-center">{error}</p>}
-          <Button type="submit" disabled={loading}>{loading ? '処理中...' : mode === 'login' ? 'ログイン' : '新規登録'}</Button>
-        </form>
-        <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="w-full mt-6 text-sm font-bold text-slate-400 active:scale-95 transition-all">{mode === 'login' ? '新規アカウント作成はこちら' : 'ログインはこちら'}</button>
-      </div>
-      {legalView === 'tos' && <LegalModal title="利用規約" content={TERMS_OF_SERVICE} onClose={() => setLegalView('none')} />}
-      {legalView === 'privacy' && <LegalModal title="プライバシーポリシー" content={PRIVACY_POLICY} onClose={() => setLegalView('none')} />}
-    </div>
-  );
-};
-
-// --- Main App ---
-export default function App() {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'map' | 'exchange' | 'ranking' | 'settings'>('home');
-  const [spots, setSpots] = useState<Spot[]>([]);
-  const [stamps, setStamps] = useState<Stamp[]>([]);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editingSpot, setEditingSpot] = useState<Spot | null>(null);
-  const [searchIdInput, setSearchIdInput] = useState('');
-  const [viewingProfile, setViewingProfile] = useState<UserProfile | null>(null);
-  const [cookieConsent, setCookieConsent] = useState<CookieConsent | null>(null);
-  const [showAdvancedCookies, setShowAdvancedCookies] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('oshikatsu_cookie_consent');
-    if (saved) setCookieConsent(JSON.parse(saved));
-  }, []);
-
-  const saveCookieConsent = (c: CookieConsent) => {
-    setCookieConsent(c);
-    localStorage.setItem('oshikatsu_cookie_consent', JSON.stringify(c));
-    setShowAdvancedCookies(false);
-  };
-
-  const refresh = () => {
-    const u = store.getStoredUser();
-    if (u) {
-      setUser(u); setSpots(store.getSpots()); setStamps(store.getAllLocalStamps()); setAllUsers(store.getAllUsers());
-    }
-  };
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(fbAuth, (fbUser) => {
-      if (fbUser) {
-        let stored = store.getStoredUser();
-        if (!stored || stored.id !== fbUser.uid) {
-          stored = { id: fbUser.uid, displayId: fbUser.email?.split('@')[0] || 'fan', name: fbUser.email?.split('@')[0] || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都', favoriteSpotIds: [], oshis: [], friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } };
-          store.saveUser(stored);
-        }
-        setUser(stored);
-      } else { setUser(null); }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => { refresh(); }, [user?.id, activeTab]);
-
-  const theme = useMemo(() => ({ color: user?.oshiColor || 'pink', colorSet: OSHI_COLORS[user?.oshiColor || 'pink'] }), [user?.oshiColor]);
-
-  if (loading) return null;
-  if (!user) return <AuthOverlay onLoginSuccess={setUser} />;
-
-  return (
-    <ThemeContext.Provider value={theme}>
-      <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans max-w-md mx-auto shadow-2xl relative overflow-hidden">
-        <header className="px-6 pt-6 pb-4 bg-white flex justify-between items-center z-10 border-b border-slate-50">
-          <div className="flex items-center gap-2">
-            <div className={`${theme.colorSet.primary} w-8 h-8 rounded-lg flex items-center justify-center`}><Sparkles className="text-white w-5 h-5" /></div>
-            <h1 className="text-2xl font-black italic">デジ<span className={theme.colorSet.text}>巡</span></h1>
-          </div>
-          <button onClick={() => setActiveTab('settings')} className="w-10 h-10 rounded-full border-2 border-white shadow-sm flex items-center justify-center bg-slate-100 text-xs font-black">{user.name[0]}</button>
-        </header>
-
-        <main className="flex-1 overflow-y-auto relative pb-24 no-scrollbar">
-          {viewingProfile ? (
-            <UserProfileView profile={viewingProfile} currentUser={user} spots={spots} stamps={stamps} onBack={() => setViewingProfile(null)} onRefresh={refresh} />
-          ) : (
-            <>
-              {activeTab === 'home' && <HomeView user={user} spots={spots} stamps={stamps} theme={theme} onEditSpot={s => { setEditingSpot(s); setActiveTab('map'); }} setViewingProfile={setViewingProfile} searchIdInput={searchIdInput} setSearchIdInput={setSearchIdInput} refresh={refresh} setActiveTab={setActiveTab} />}
-              {activeTab === 'map' && <MapView spots={spots} stamps={stamps.filter(s => s.userId === user.id)} user={user} onRefresh={refresh} editingSpot={editingSpot} setEditingSpot={setEditingSpot} />}
-              {activeTab === 'exchange' && <ExchangeView user={user} theme={theme} spots={spots} />}
-              {activeTab === 'ranking' && <RankingView allUsers={allUsers} allSpots={spots} allStamps={stamps} theme={theme} />}
-              {activeTab === 'settings' && <SettingsTab user={user} theme={theme} spots={spots} refresh={refresh} onManageCookies={() => setShowAdvancedCookies(true)} />}
-            </>
-          )}
-        </main>
-
-        <nav className="absolute bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl border border-white/20 shadow-2xl rounded-[2.5rem] h-20 flex items-center justify-around px-2 z-50">
-          {[
-            { id: 'home', icon: Home, label: 'ホーム' },
-            { id: 'map', icon: MapPin, label: '聖地' },
-            { id: 'ranking', icon: Trophy, label: '順位' },
-            { id: 'exchange', icon: Repeat, label: '掲示板' },
-            { id: 'settings', icon: Settings, label: '設定' },
-          ].map((item: any) => (
-            <button key={item.id} onClick={() => { setActiveTab(item.id); setViewingProfile(null); if(item.id !== 'map') setEditingSpot(null); }} className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-[1.5rem] transition-all ${activeTab === item.id ? `${theme.colorSet.secondary} ${theme.colorSet.text} scale-110` : 'text-slate-400'}`}>
-              <item.icon size={activeTab === item.id ? 22 : 20} strokeWidth={2.5} /><span className="text-[9px] font-black uppercase tracking-tighter">{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        {!cookieConsent && <CookieBanner 
-          onAcceptAll={() => saveCookieConsent({ essential: true, analytics: true, marketing: true, agreedAt: Date.now() })} 
-          onAcceptEssential={() => saveCookieConsent({ essential: true, analytics: false, marketing: false, agreedAt: Date.now() })} 
-          onShowAdvanced={() => setShowAdvancedCookies(true)} 
-        />}
-        {showAdvancedCookies && <AdvancedCookieModal 
-          consent={cookieConsent || { essential: true, analytics: false, marketing: false, agreedAt: 0 }} 
-          onSave={saveCookieConsent} 
-          onClose={() => setShowAdvancedCookies(false)} 
-        />}
-      </div>
-    </ThemeContext.Provider>
-  );
-}
-
-// --- Home View Component ---
-const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, searchIdInput, setSearchIdInput, refresh, setActiveTab }: any) => {
-  const myRegisteredSpots = spots.filter((s: Spot) => s.createdBy === user.id);
-  const myStamps = stamps.filter((s: Stamp) => s.userId === user.id);
-  const mySeichiStamps = myStamps.filter((s: Stamp) => s.type === 'seichi');
-  const checkinHistory = myStamps.map((s: Stamp) => ({ ...s, spot: spots.find((sp: Spot) => sp.id === s.spotId) })).reverse();
-  const mySpotsByIp = myRegisteredSpots.reduce((acc: any, spot: Spot) => { acc[spot.ipName] = acc[spot.ipName] || []; acc[spot.ipName].push(spot); return acc; }, {} as Record<string, Spot[]>);
-  const myHistoryByIp = checkinHistory.reduce((acc: any, stamp: any) => { const ip = stamp.spot?.ipName || 'その他'; acc[ip] = acc[ip] || []; acc[ip].push(stamp); return acc; }, {} as Record<string, any[]>);
-  const handleSearchUserByDisplayId = () => { const cleanId = searchIdInput.replace('@', '').trim(); const target = store.getUserByDisplayId(cleanId); if (target) { setViewingProfile(target); setSearchIdInput(''); } else { alert('ユーザーが見つかりませんでした'); } };
-
-  return (
-    <div className="p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4">
-      <div className="flex justify-between items-start"><h2 className="text-3xl font-black tracking-tight">こんにちは、<br/><span className="text-slate-400">{user.name}</span>さん 👋</h2></div>
-      <div className="flex gap-2">
-        <input type="text" placeholder="ユーザーID (@testtest) で検索" value={searchIdInput} onChange={e => setSearchIdInput(e.target.value)} className="flex-1 p-4 bg-white rounded-2xl font-bold text-sm shadow-sm outline-none border border-slate-50" />
-        <button onClick={handleSearchUserByDisplayId} className={`${theme.colorSet.primary} p-4 rounded-2xl text-white shadow-lg active:scale-95 transition-all`}><Search size={20}/></button>
-      </div>
-      {(user.friendIds || []).length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-xs font-black text-slate-300 uppercase tracking-widest flex items-center gap-2"><Users size={14}/> フレンド ({user.friendIds?.length})</h3>
-          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-            {user.friendIds?.map((id: string) => {
-              const f = store.getUserById(id); if (!f) return null;
-              return (<button key={id} onClick={() => setViewingProfile(f)} className="flex-shrink-0 flex flex-col items-center gap-1 group"><div className={`${OSHI_COLORS[f.oshiColor].primary} w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-sm group-active:scale-90 transition-all`}>{f.name[0]}</div><span className="text-[10px] font-bold text-slate-400 truncate w-12 text-center">{f.name}</span></button>);
-            })}
-          </div>
-        </div>
+      {activePost && (
+        <ExchangeInteractionModal 
+          post={activePost} 
+          user={user} 
+          theme={theme} 
+          onClose={() => setActivePost(null)} 
+          onUpdate={refreshPosts} 
+        />
       )}
-      <div className={`${theme.colorSet.primary} rounded-[2rem] p-6 text-white shadow-xl relative overflow-hidden`}>
-        <div className="absolute -right-10 -bottom-10 opacity-10"><MapPinned size={180} /></div>
-        <div className="relative z-10 flex justify-between items-end">
-          <div><p className="text-white/80 font-bold mb-1 text-xs uppercase tracking-widest">巡礼レベル</p><p className="text-4xl font-black tracking-tighter">Lv.{Math.floor(mySeichiStamps.length / 5) + 1}</p></div>
-          <div className="bg-white/20 px-4 py-2 rounded-2xl border border-white/20 text-xs font-black">{mySeichiStamps.length} チェックイン</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <button onClick={() => { setActiveTab('map'); }} className={`${theme.colorSet.primary} text-white h-28 flex flex-col items-center justify-center gap-2 rounded-[2rem] shadow-lg shadow-pink-100 font-black text-xs uppercase active:scale-95 transition-all`}><Plus size={28}/> 聖地を登録</button>
-        <button onClick={() => setActiveTab('ranking')} className="bg-white border-2 border-slate-200 h-28 flex flex-col items-center justify-center gap-2 rounded-[2rem] font-black text-xs uppercase active:scale-95 transition-all"><Trophy size={28} className={theme.colorSet.text}/> ランキング</button>
-      </div>
-      <div>
-        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><MapIcon size={20} className={theme.colorSet.text}/> 登録した聖地</h3>
-        {Object.keys(mySpotsByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">まだ聖地を登録していません</p> : (
-          <div className="space-y-6">{(Object.entries(mySpotsByIp) as [string, Spot[]][]).map(([ip, ipSpots]) => (
-            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{ipSpots.map(spot => (
-              <div key={spot.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex justify-between items-center"><div className="flex-1"><p className="text-[10px] font-black text-slate-300 uppercase">{CATEGORY_LABELS[spot.category]}</p><h4 className="font-black text-sm">{spot.name}</h4>{spot.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-square w-20"><img src={spot.photo} alt={spot.name} className="w-full h-full object-cover" /></div>)}</div><button onClick={() => onEditSpot(spot)} className="p-3 bg-slate-50 rounded-2xl text-slate-400 active:scale-90 transition-all"><Edit3 size={16}/></button></div>
-            ))}</div>
-          ))}</div>
-        )}
-      </div>
-      <div>
-        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><History size={20} className={theme.colorSet.text}/> チェックイン履歴</h3>
-        {Object.keys(myHistoryByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">チェックインの記録がありません</p> : (
-          <div className="space-y-6">{(Object.entries(myHistoryByIp) as [string, any[]][]).map(([ip, stamps]) => (
-            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{stamps.map(stamp => (
-              <div key={stamp.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex gap-4"><div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center flex-shrink-0 font-black italic">✓</div><div className="flex-1"><h4 className="font-black text-sm">{stamp.spot?.name || '削除されたスポット'}</h4><p className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {new Date(stamp.timestamp).toLocaleString()}</p>{stamp.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-video w-full"><img src={stamp.photo} alt="visit" className="w-full h-full object-cover" /></div>)}</div></div>
-            ))}</div>
-          ))}</div>
-        )}
-      </div>
     </div>
   );
 };
 
-// --- Settings View Component (Fix for line 619 error) ---
+// --- Settings View Component ---
 const SettingsView = ({ user, theme, onRefresh }: any) => {
   const [formData, setFormData] = useState({
     name: user.name,
@@ -801,12 +895,23 @@ const SettingsView = ({ user, theme, onRefresh }: any) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <p className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">居住地</p>
-            <select value={formData.prefecture} onChange={e => setFormData({...formData, prefecture: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none outline-none appearance-none">
-              {PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">居住地</p>
+              <select value={formData.prefecture} onChange={e => setFormData({...formData, prefecture: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none outline-none appearance-none">
+                {PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">性別</p>
+              <select value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-none outline-none appearance-none">
+                <option value="">未設定</option>
+                <option value="male">男性</option>
+                <option value="female">女性</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
           </div>
           <div className="space-y-1">
             <p className="text-[10px] font-black text-slate-400 uppercase px-2 tracking-widest">年代</p>
@@ -925,7 +1030,7 @@ const SpotDetailModal = ({ spot, userLocation, onCheckin, onEdit, onClose, isMyS
 };
 
 // --- Map View Component ---
-const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }: { spots: Spot[], stamps: Stamp[], user: UserProfile, onRefresh: () => void, editingSpot: Spot | null, setEditingSpot: (s: Spot | null) => void }) => {
+const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot, isVisible }: { spots: Spot[], stamps: Stamp[], user: UserProfile, onRefresh: () => void, editingSpot: Spot | null, setEditingSpot: (s: Spot | null) => void, isVisible: boolean }) => {
   const theme = useTheme();
   const mapRef = useRef<any>(null);
   const [isAdding, setIsAdding] = useState<'none' | 'spot' | 'pick_location' | 'checkin'>('none');
@@ -942,11 +1047,26 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
   const [isSearchingInternal, setIsSearchingInternal] = useState(false);
 
   useEffect(() => { if (editingSpot) { setNewSpot(editingSpot); setPickedLoc([editingSpot.lat, editingSpot.lng]); setPickedAddress('登録済みの位置'); setIsAdding('spot'); } }, [editingSpot]);
+  
   useEffect(() => {
-    if (!mapRef.current) { mapRef.current = L.map('map-container', { zoomControl: false }).setView([35.6812, 139.7671], 13); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapRef.current); }
+    if (!mapRef.current) { 
+      mapRef.current = L.map('map-container', { 
+        zoomControl: false,
+        preferCanvas: true 
+      }).setView([35.6812, 139.7671], 13); 
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapRef.current); 
+    }
     const watchId = navigator.geolocation.watchPosition(pos => setUserLocation([pos.coords.latitude, pos.coords.longitude]));
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  useEffect(() => {
+    if (isVisible && mapRef.current) {
+      setTimeout(() => {
+        mapRef.current.invalidateSize();
+      }, 100);
+    }
+  }, [isVisible]);
 
   useEffect(() => {
     if (!mapRef.current) return; const map = mapRef.current;
@@ -974,8 +1094,7 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
   const handleSelectResult = (res: any) => { const lat = parseFloat(res.lat); const lng = parseFloat(res.lon); setPickedLoc([lat, lng]); setPickedAddress(res.display_name); mapRef.current.setView([lat, lng], 17); setSearchResults([]); setSearchQuery(''); setIsAdding('spot'); };
 
   const handleSaveSpot = () => {
-    if (!newSpot.name || !newPost.ipName || !pickedLoc) { alert('「名称」「IP名」「場所指定」は必須です'); return; }
-    if (newSpot.type === 'memory' && !newSpot.memoryDate) { alert('「思い出の日時」を入力してください'); return; }
+    if (!newSpot.name || !newSpot.ipName || !pickedLoc) { alert('「名称」「IP名」「場所指定」は必須です'); return; }
     const spot: Spot = { ...newSpot, id: newSpot.id || `user_${Date.now()}`, lat: pickedLoc[0], lng: pickedLoc[1], isPublic: true, createdBy: user.id, createdAt: newSpot.createdAt || Date.now(), keywords: [] } as Spot;
     if (newSpot.id) store.updateSpot(spot); else store.saveSpot(spot);
     setIsAdding('none'); setEditingSpot(null); setPickedLoc(null); setPickedAddress(''); onRefresh(); alert(`${newSpot.type === 'memory' ? '思い出の場所' : '聖地'}が登録できました！`);
@@ -1007,7 +1126,6 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
     <div className="h-full relative">
       <div id="map-container" className="h-full w-full z-0"></div>
       
-      {/* Search Overlay */}
       <div className="absolute top-4 left-4 right-4 z-[1001] space-y-2">
         <div className="bg-white/90 backdrop-blur-md rounded-[2rem] p-2 shadow-xl flex items-center gap-2 border border-white/50">
           <div className="p-3 text-slate-400"><Search size={20}/></div>
@@ -1084,12 +1202,13 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
             <div className="space-y-4">
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">名称</label><input type="text" placeholder="場所の名称" value={newSpot.name || ''} onChange={e => setNewSpot({...newSpot, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none" /></div>
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">カテゴリー</label><select value={newSpot.category} onChange={e => setNewSpot({...newSpot, category: e.target.value as SpotCategory})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold">{Object.entries(CATEGORY_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">IP名（アーティスト・作品名など）</label><IpSuggestionInput value={newSpot.ipName || ''} onChange={val => setNewSpot({...newSpot, ipName: val})} category={newSpot.category} placeholder="IP名" spots={spots} /></div>
+              {/* Fix: Error in App.tsx line 1206: Change newPost to newSpot */}
+              <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">IP名</label><IpSuggestionInput value={newSpot.ipName || ''} onChange={val => setNewSpot({...newSpot, ipName: val})} category={newSpot.category} placeholder="IP名" spots={spots} /></div>
               {newSpot.type === 'seichi' ? (
-                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><LinkIcon size={10}/> 情報源 URL (SNS等)</label><input type="url" placeholder="https://..." value={newSpot.evidenceUrl || ''} onChange={e => setNewSpot({...newSpot, evidenceUrl: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none text-xs" /></div>
+                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><LinkIcon size={10}/> 情報源 URL</label><input type="url" placeholder="https://..." value={newSpot.evidenceUrl || ''} onChange={e => setNewSpot({...newSpot, evidenceUrl: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none text-xs" /></div>
               ) : (
                 <><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><Calendar size={10}/> 思い出の日時</label><input type="date" value={newSpot.memoryDate ? new Date(newSpot.memoryDate).toISOString().split('T')[0] : ''} onChange={e => setNewSpot({...newSpot, memoryDate: new Date(e.target.value).getTime()})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none" /></div>
-                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><ImageIcon size={10}/> 写真（1枚）</label><div className="flex flex-col gap-3"><label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer active:bg-slate-100 transition-all"><Camera size={32} className="text-slate-300" /><span className="text-xs font-black text-slate-400">写真を撮る・選ぶ</span><input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, 'spot')} className="hidden" /></label>{newSpot.photo && (<div className="relative w-full aspect-square rounded-2xl overflow-hidden shadow-sm"><img src={newSpot.photo} alt="Preview" className="w-full h-full object-cover" /><button onClick={() => setNewSpot({...newSpot, photo: undefined})} className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur rounded-full text-rose-500 shadow-sm"><X size={16}/></button></div>)}</div></div></>
+                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><ImageIcon size={10}/> 写真</label><div className="flex flex-col gap-3"><label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer active:bg-slate-100 transition-all"><Camera size={32} className="text-slate-300" /><span className="text-xs font-black text-slate-400">写真を撮る・選ぶ</span><input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, 'spot')} className="hidden" /></label>{newSpot.photo && (<div className="relative w-full aspect-square rounded-2xl overflow-hidden shadow-sm"><img src={newSpot.photo} alt="Preview" className="w-full h-full object-cover" /><button onClick={() => setNewSpot({...newSpot, photo: undefined})} className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur rounded-full text-rose-500 shadow-sm"><X size={16}/></button></div>)}</div></div></>
               )}
               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">説明・メモ</label><textarea placeholder="説明" value={newSpot.description || ''} onChange={e => setNewSpot({...newSpot, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-pink-500 outline-none h-32" /></div>
             </div>
@@ -1100,9 +1219,9 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
 
       {isAdding === 'checkin' && checkingInSpot && (
         <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[2000] p-6 flex flex-col items-center justify-center animate-in zoom-in-95 fade-in">
-          <div className="w-full max-w-sm space-y-6">
+          <div className="w-full max-sm space-y-6">
             <div className="text-center space-y-2"><div className={`${theme.colorSet.secondary} w-20 h-20 rounded-3xl flex items-center justify-center mx-auto text-pink-500 mb-2`}><MapPinned size={40} /></div><h2 className="text-2xl font-black">{checkingInSpot.name}</h2><p className="text-xs font-bold text-slate-400">{checkingInSpot.ipName}</p></div>
-            <div className="space-y-4"><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><ImageIcon size={10}/> 写真を一緒に残す (任意/1枚)</label><div className="flex flex-col gap-3">{!checkinPhoto ? (<label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer active:bg-slate-100 transition-all"><Camera size={40} className="text-slate-300" /><span className="text-xs font-black text-slate-400">撮影・アップロード</span><input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, 'checkin')} className="hidden" /></label>) : (<div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-xl ring-4 ring-pink-50"><img src={checkinPhoto} alt="Check-in preview" className="w-full h-full object-cover" /><button onClick={() => setCheckinPhoto(null)} className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={18}/></button></div>)}</div></div></div>
+            <div className="space-y-4"><div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 px-2"><ImageIcon size={10}/> 写真を一緒に残す</label><div className="flex flex-col gap-3">{!checkinPhoto ? (<label className="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer active:bg-slate-100 transition-all"><Camera size={40} className="text-slate-300" /><span className="text-xs font-black text-slate-400">撮影・アップロード</span><input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(e, 'checkin')} className="hidden" /></label>) : (<div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-xl ring-4 ring-pink-50"><img src={checkinPhoto} alt="Check-in preview" className="w-full h-full object-cover" /><button onClick={() => setCheckinPhoto(null)} className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={18}/></button></div>)}</div></div></div>
             <div className="flex flex-col gap-2"><Button onClick={handleConfirmCheckin}>チェックインを完了する</Button><button onClick={() => { setIsAdding('none'); setCheckingInSpot(null); setCheckinPhoto(null); }} className="w-full py-4 font-black text-slate-400 text-sm">やめる</button></div>
           </div>
         </div>
@@ -1126,3 +1245,337 @@ const MapView = ({ spots, stamps, user, onRefresh, editingSpot, setEditingSpot }
     </div>
   );
 };
+
+// --- Home View Component ---
+const HomeView = ({ user, spots, stamps, theme, onEditSpot, setViewingProfile, searchIdInput, setSearchIdInput, refresh, setActiveTab, onSelectExchange }: any) => {
+  const myRegisteredSpots = spots.filter((s: Spot) => s.createdBy === user.id);
+  const myStamps = stamps.filter((s: Stamp) => s.userId === user.id);
+  const mySeichiStamps = myStamps.filter((s: Stamp) => s.type === 'seichi');
+  const checkinHistory = myStamps.map((s: Stamp) => ({ ...s, spot: spots.find((sp: Spot) => sp.id === s.spotId) })).reverse();
+  const mySpotsByIp = myRegisteredSpots.reduce((acc: any, spot: Spot) => { acc[spot.ipName] = acc[spot.ipName] || []; acc[spot.ipName].push(spot); return acc; }, {} as Record<string, Spot[]>);
+  const myHistoryByIp = checkinHistory.reduce((acc: any, stamp: any) => { const ip = stamp.spot?.ipName || 'その他'; acc[ip] = acc[ip] || []; acc[ip].push(stamp); return acc; }, {} as Record<string, any[]>);
+  const handleSearchUserByDisplayId = () => { const cleanId = searchIdInput.replace('@', '').trim(); const target = store.getUserByDisplayId(cleanId); if (target) { setViewingProfile(target); setSearchIdInput(''); } else { alert('ユーザーが見つかりませんでした'); } };
+
+  // 自分の交換掲示板投稿
+  const myExchanges = useMemo(() => store.getExchanges().filter(p => p.userId === user.id), [user.id]);
+
+  return (
+    <div className="p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex justify-between items-start"><h2 className="text-3xl font-black tracking-tight">こんにちは、<br/><span className="text-slate-400">{user.name}</span>さん 👋</h2></div>
+      <div className="flex gap-2">
+        <input type="text" placeholder="ユーザーID (@testtest) で検索" value={searchIdInput} onChange={e => setSearchIdInput(e.target.value)} className="flex-1 p-4 bg-white rounded-2xl font-bold text-sm shadow-sm outline-none border border-slate-50" />
+        <button onClick={handleSearchUserByDisplayId} className={`${theme.colorSet.primary} p-4 rounded-2xl text-white shadow-lg active:scale-95 transition-all`}><Search size={20}/></button>
+      </div>
+      {(user.friendIds || []).length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-black text-slate-300 uppercase tracking-widest flex items-center gap-2"><Users size={14}/> フレンド ({user.friendIds?.length})</h3>
+          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+            {user.friendIds?.map((id: string) => {
+              const f = store.getUserById(id); if (!f) return null;
+              return (<button key={id} onClick={() => setViewingProfile(f)} className="flex-shrink-0 flex flex-col items-center gap-1 group"><div className={`${OSHI_COLORS[f.oshiColor].primary} w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-sm group-active:scale-90 transition-all`}>{f.name[0]}</div><span className="text-[10px] font-bold text-slate-400 truncate w-12 text-center">{f.name}</span></button>);
+            })}
+          </div>
+        </div>
+      )}
+      <div className={`${theme.colorSet.primary} rounded-[2rem] p-6 text-white shadow-xl relative overflow-hidden`}>
+        <div className="absolute -right-10 -bottom-10 opacity-10"><MapPinned size={180} /></div>
+        <div className="relative z-10 flex justify-between items-end">
+          <div><p className="text-white/80 font-bold mb-1 text-xs uppercase tracking-widest">巡礼レベル</p><p className="text-4xl font-black tracking-tighter">Lv.{Math.floor(mySeichiStamps.length / 5) + 1}</p></div>
+          <div className="bg-white/20 px-4 py-2 rounded-2xl border border-white/20 text-xs font-black">{mySeichiStamps.length} チェックイン</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <button onClick={() => { setActiveTab('map'); }} className={`${theme.colorSet.primary} text-white h-28 flex flex-col items-center justify-center gap-2 rounded-[2rem] shadow-lg shadow-pink-100 font-black text-xs uppercase active:scale-95 transition-all`}><Plus size={28}/> 聖地を登録</button>
+        <button onClick={() => setActiveTab('ranking')} className="bg-white border-2 border-slate-200 h-28 flex flex-col items-center justify-center gap-2 rounded-[2rem] font-black text-xs uppercase active:scale-95 transition-all"><Trophy size={28} className={theme.colorSet.text}/> ランキング</button>
+      </div>
+
+      {/* 追加: 自分の交換掲示板投稿一覧 */}
+      <div>
+        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><Repeat size={20} className={theme.colorSet.text}/> あなたの交換募集</h3>
+        {myExchanges.length === 0 ? (
+          <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">まだ募集を投稿していません</p>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+            {myExchanges.map(post => (
+              <button 
+                key={post.id} 
+                onClick={() => onSelectExchange(post.id)}
+                className="flex-shrink-0 w-40 bg-white p-4 rounded-3xl shadow-sm border border-slate-50 text-left space-y-2 active:scale-95 transition-all"
+              >
+                <div className="aspect-square bg-slate-50 rounded-xl overflow-hidden">
+                  {post.photo ? <img src={post.photo} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><Package size={24}/></div>}
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-300 uppercase truncate">{post.ipName}</p>
+                  <p className="font-black text-xs truncate text-slate-700">{post.itemName}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><MapIcon size={20} className={theme.colorSet.text}/> 登録した聖地</h3>
+        {Object.keys(mySpotsByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">まだ聖地を登録していません</p> : (
+          <div className="space-y-6">{(Object.entries(mySpotsByIp) as [string, Spot[]][]).map(([ip, ipSpots]) => (
+            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{ipSpots.map(spot => (
+              <div key={spot.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex justify-between items-center"><div className="flex-1"><p className="text-[10px] font-black text-slate-300 uppercase">{CATEGORY_LABELS[spot.category]}</p><h4 className="font-black text-sm">{spot.name}</h4>{spot.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-square w-20"><img src={spot.photo} alt={spot.name} className="w-full h-full object-cover" /></div>)}</div><button onClick={() => onEditSpot(spot)} className="p-3 bg-slate-50 rounded-2xl text-slate-400 active:scale-90 transition-all"><Edit3 size={16}/></button></div>
+            ))}</div>
+          ))}</div>
+        )}
+      </div>
+      <div>
+        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><History size={20} className={theme.colorSet.text}/> チェックイン履歴</h3>
+        {Object.keys(myHistoryByIp).length === 0 ? <p className="text-xs font-bold text-slate-300 bg-white p-6 rounded-3xl border border-dashed text-center">チェックインの記録がありません</p> : (
+          <div className="space-y-6">{(Object.entries(myHistoryByIp) as [string, any[]][]).map(([ip, stamps]) => (
+            <div key={ip} className="space-y-3"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">{ip}</h4>{stamps.map(stamp => (
+              <div key={stamp.id} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-50 flex gap-4"><div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center flex-shrink-0 font-black italic">✓</div><div className="flex-1"><h4 className="font-black text-sm">{stamp.spot?.name || '削除されたスポット'}</h4><p className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {new Date(stamp.timestamp).toLocaleString()}</p>{stamp.photo && (<div className="mt-2 rounded-xl overflow-hidden aspect-video w-full"><img src={stamp.photo} alt="visit" className="w-full h-full object-cover" /></div>)}</div></div>
+            ))}</div>
+          ))}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- App Root View ---
+const MainAppContent = ({ user, setUser }: any) => {
+  const [activeTab, setActiveTab] = useState<'home' | 'map' | 'exchange' | 'ranking' | 'settings'>('home');
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [stamps, setStamps] = useState<Stamp[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [editingSpot, setEditingSpot] = useState<Spot | null>(null);
+  const [searchIdInput, setSearchIdInput] = useState('');
+  const [viewingProfile, setViewingProfile] = useState<UserProfile | null>(null);
+  const [cookieConsent, setCookieConsent] = useState<CookieConsent | null>(null);
+  const [showAdvancedCookies, setShowAdvancedCookies] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [targetExchangeId, setTargetExchangeId] = useState<string | null>(null); // 追加: 特定の投稿へのジャンプ用
+
+  useEffect(() => {
+    const saved = localStorage.getItem('oshikatsu_cookie_consent');
+    if (saved) setCookieConsent(JSON.parse(saved));
+  }, []);
+
+  const saveCookieConsent = (c: CookieConsent) => {
+    setCookieConsent(c);
+    localStorage.setItem('oshikatsu_cookie_consent', JSON.stringify(c));
+    setShowAdvancedCookies(false);
+  };
+
+  const refresh = () => {
+    const u = store.getStoredUser();
+    if (u) {
+      setUser(u); setSpots(store.getSpots()); setStamps(store.getAllLocalStamps()); setAllUsers(store.getAllUsers());
+      const notifs = store.getNotifications(u.id);
+      setUnreadCount(notifs.filter(n => !n.isRead || (n.type === 'request' && !n.isActioned)).length);
+    }
+  };
+
+  useEffect(() => { refresh(); }, [user?.id, activeTab]);
+
+  const theme = useMemo(() => ({ color: user?.oshiColor || 'pink', colorSet: OSHI_COLORS[user?.oshiColor || 'pink'] }), [user?.oshiColor]);
+
+  return (
+    <ThemeContext.Provider value={theme}>
+      <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans max-w-md mx-auto shadow-2xl relative overflow-hidden">
+        <header className="px-6 pt-6 pb-4 bg-white flex justify-between items-center z-10 border-b border-slate-50">
+          <div className="flex items-center gap-2">
+            <div className={`${theme.colorSet.primary} w-8 h-8 rounded-lg flex items-center justify-center`}><Sparkles className="text-white w-5 h-5" /></div>
+            <h1 className="text-2xl font-black italic">デジ<span className={theme.colorSet.text}>巡</span></h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowNotifications(true)} className="w-10 h-10 rounded-full flex items-center justify-center bg-slate-50 text-slate-400 relative active:scale-90 transition-all">
+              <Bell size={20}/>
+              {unreadCount > 0 && <div className="absolute top-0 right-0 w-5 h-5 bg-pink-500 text-white rounded-full flex items-center justify-center text-[9px] font-black border-2 border-white">{unreadCount}</div>}
+            </button>
+            <button onClick={() => setActiveTab('settings')} className="w-10 h-10 rounded-full border-2 border-white shadow-sm flex items-center justify-center bg-slate-100 text-xs font-black">{user.name[0]}</button>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto relative pb-24 no-scrollbar">
+          {viewingProfile ? (
+            <UserProfileView profile={viewingProfile} currentUser={user} spots={spots} stamps={stamps} onBack={() => setViewingProfile(null)} onRefresh={refresh} />
+          ) : (
+            <>
+              {activeTab === 'home' && (
+                <HomeView 
+                  user={user} 
+                  spots={spots} 
+                  stamps={stamps} 
+                  theme={theme} 
+                  onEditSpot={s => { setEditingSpot(s); setActiveTab('map'); }} 
+                  setViewingProfile={setViewingProfile} 
+                  searchIdInput={searchIdInput} 
+                  setSearchIdInput={setSearchIdInput} 
+                  refresh={refresh} 
+                  setActiveTab={setActiveTab} 
+                  onSelectExchange={(id: string) => {
+                    setTargetExchangeId(id);
+                    setActiveTab('exchange');
+                  }}
+                />
+              )}
+              
+              <div className={`h-full w-full ${activeTab === 'map' ? 'block' : 'hidden'}`}>
+                <MapView 
+                  spots={spots} 
+                  stamps={stamps.filter(s => s.userId === user.id)} 
+                  user={user} 
+                  onRefresh={refresh} 
+                  editingSpot={editingSpot} 
+                  setEditingSpot={setEditingSpot} 
+                  isVisible={activeTab === 'map'}
+                />
+              </div>
+
+              {activeTab === 'exchange' && (
+                <ExchangeView 
+                  user={user} 
+                  theme={theme} 
+                  spots={spots} 
+                  targetExchangeId={targetExchangeId} 
+                  setTargetExchangeId={setTargetExchangeId} 
+                />
+              )}
+              {activeTab === 'ranking' && <RankingView allUsers={allUsers} allSpots={spots} allStamps={stamps} theme={theme} />}
+              {activeTab === 'settings' && <SettingsTab user={user} theme={theme} spots={spots} refresh={refresh} onManageCookies={() => setShowAdvancedCookies(true)} />}
+            </>
+          )}
+        </main>
+
+        <nav className="absolute bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl border border-white/20 shadow-2xl rounded-[2.5rem] h-20 flex items-center justify-around px-2 z-50">
+          {[
+            { id: 'home', icon: Home, label: 'ホーム' },
+            { id: 'map', icon: MapPin, label: '聖地' },
+            { id: 'ranking', icon: Trophy, label: '順位' },
+            { id: 'exchange', icon: Repeat, label: '掲示板' },
+            { id: 'settings', icon: Settings, label: '設定' },
+          ].map((item: any) => (
+            <button key={item.id} onClick={() => { setActiveTab(item.id); setViewingProfile(null); if(item.id !== 'map') setEditingSpot(null); }} className={`flex flex-col items-center gap-1.5 px-4 py-2 rounded-[1.5rem] transition-all ${activeTab === item.id ? `${theme.colorSet.secondary} ${theme.colorSet.text} scale-110` : 'text-slate-400'}`}>
+              <item.icon size={activeTab === item.id ? 22 : 20} strokeWidth={2.5} /><span className="text-[9px] font-black uppercase tracking-tighter">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {!cookieConsent && <CookieBanner 
+          onAcceptAll={() => saveCookieConsent({ essential: true, analytics: true, marketing: true, agreedAt: Date.now() })} 
+          onAcceptEssential={() => saveCookieConsent({ essential: true, analytics: false, marketing: false, agreedAt: Date.now() })} 
+          onShowAdvanced={() => setShowAdvancedCookies(true)} 
+        />}
+        {showAdvancedCookies && <AdvancedCookieModal 
+          consent={cookieConsent || { essential: true, analytics: false, marketing: false, agreedAt: 0 }} 
+          onSave={saveCookieConsent} 
+          onClose={() => setShowAdvancedCookies(false)} 
+        />}
+        {showNotifications && <NotificationModal user={user} onClose={() => setShowNotifications(false)} onRefresh={refresh} />}
+      </div>
+    </ThemeContext.Provider>
+  );
+};
+
+// --- Auth Overlay Component ---
+const AuthOverlay = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) => void }) => {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [formData, setFormData] = useState({ loginId: '', displayId: '', password: '', age: '', gender: '', prefecture: '東京都', oshiColor: 'pink' as OshiColor, oshis: [] as string[], terms: false });
+  const [oshiInput, setOshiInput] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [legalView, setLegalView] = useState<'none' | 'tos' | 'privacy'>('none');
+  const addOshi = () => { if (oshiInput.trim() && formData.oshis.length < 5) { setFormData({ ...formData, oshis: [...formData.oshis, oshiInput.trim()] }); setOshiInput(''); } };
+  const removeOshi = (index: number) => { const next = [...formData.oshis]; next.splice(index, 1); setFormData({ ...formData, oshis: next }); };
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (formData.loginId.length < 6 || formData.password.length < 6) { setError('IDとパスワードは6文字以上で入力してください'); return; }
+    if (mode === 'signup' && !formData.displayId) { setError('ユーザーIDを入力してください'); return; }
+    if (mode === 'signup' && !formData.terms) { setError('利用規約とプライバシーポリシーに同意してください'); return; }
+    setLoading(true);
+    const email = `${formData.loginId.toLowerCase()}@dejijun.app`;
+    try {
+      if (mode === 'signup') {
+        if (store.getUserByDisplayId(formData.displayId)) { setError('そのユーザーIDは既に使用されています'); setLoading(false); return; }
+        const cred = await createUserWithEmailAndPassword(fbAuth, email, formData.password);
+        const newUser: UserProfile = { id: cred.user.uid, displayId: formData.displayId, name: formData.loginId, oshiColor: formData.oshiColor, isAnonymous: false, prefecture: formData.prefecture, age: formData.age, gender: formData.gender, favoriteSpotIds: [], oshis: formData.oshis.map(name => ({ category: 'other', ipName: name })), friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } };
+        store.saveUser(newUser); onLoginSuccess(newUser);
+      } else {
+        const cred = await signInWithEmailAndPassword(fbAuth, email, formData.password);
+        let user = store.getStoredUser();
+        if (!user || user.id !== cred.user.uid) { user = { id: cred.user.uid, displayId: formData.loginId, name: formData.loginId || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都', favoriteSpotIds: [], oshis: [], friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } }; store.saveUser(user); }
+        onLoginSuccess(user);
+      }
+    } catch (e: any) { setError('ログインに失敗しました。内容を確認してください。'); } finally { setLoading(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
+      <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 shadow-2xl relative my-auto">
+        <h1 className="text-3xl font-black text-center text-slate-800 mb-8 tracking-tighter italic">デジ<span className="text-pink-600">巡</span></h1>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input type="text" placeholder="ログイン名 (英数字)" value={formData.loginId} onChange={e => setFormData({...formData, loginId: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
+          {mode === 'signup' && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase px-2">ユーザーID (@ID)</p>
+              <input type="text" placeholder="例: testtest" value={formData.displayId} onChange={e => setFormData({...formData, displayId: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
+            </div>
+          )}
+          <input type="password" placeholder="パスワード" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-400 transition-all font-bold" />
+          {mode === 'signup' && (
+            <div className="space-y-6 pt-4 border-t border-slate-100">
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase px-2">推しカラー設定</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {(Object.entries(OSHI_COLORS) as [OshiColor, any][]).map(([key, value]) => (<button key={key} type="button" onClick={() => setFormData({...formData, oshiColor: key})} className={`w-full aspect-square rounded-xl ${value.primary} ${formData.oshiColor === key ? 'ring-4 ring-offset-2 ring-slate-200' : ''}`} />))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase px-2">推しを登録 (最大5つ)</p>
+                <div className="flex gap-2">
+                  <input type="text" placeholder="アーティスト・作品名" value={oshiInput} onChange={e => setOshiInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addOshi())} className="flex-1 p-3 bg-slate-50 border-2 border-transparent rounded-xl outline-none focus:border-pink-400 font-bold text-sm" />
+                  <button type="button" onClick={addOshi} disabled={formData.oshis.length >= 5} className="bg-pink-500 text-white p-3 rounded-xl disabled:opacity-50"><Plus size={20}/></button>
+                </div>
+                <div className="flex flex-wrap gap-2">{formData.oshis.map((name, i) => (<div key={i} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1">{name} <button type="button" onClick={() => removeOshi(i)} className="text-slate-400 hover:text-rose-500"><X size={12}/></button></div>))}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={formData.prefecture} onChange={e => setFormData({...formData, prefecture: e.target.value})} className="p-4 bg-slate-50 rounded-2xl font-bold">{PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}</select>
+                <select value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="p-4 bg-slate-50 rounded-2xl font-bold"><option value="">性別（任意）</option><option value="male">男性</option><option value="female">女性</option><option value="other">その他</option></select>
+              </div>
+              <select value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold"><option value="">年代（任意）</option><option value="10代">10代</option><option value="20代">20代</option><option value="30代">30代</option><option value="40代">40代</option><option value="50代">50代</option><option value="60代以上">60代以上</option></select>
+              <div className="space-y-2 p-2 bg-slate-50 rounded-2xl"><label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={formData.terms} onChange={e => setFormData({...formData, terms: e.target.checked})} className="w-5 h-5 accent-pink-500 rounded" /><span className="text-xs font-bold text-slate-500 leading-tight"><button type="button" onClick={() => setLegalView('tos')} className="text-pink-600 underline">利用規約</button>と<button type="button" onClick={() => setLegalView('privacy')} className="text-pink-600 underline ml-1">プライバシーポリシー</button>に同意する</span></label></div>
+            </div>
+          )}
+          {error && <p className="text-rose-500 text-xs font-bold text-center">{error}</p>}
+          <Button type="submit" disabled={loading}>{loading ? '処理中...' : mode === 'login' ? 'ログイン' : '新規登録'}</Button>
+        </form>
+        <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="w-full mt-6 text-sm font-bold text-slate-400 active:scale-95 transition-all">{mode === 'login' ? '新規アカウント作成はこちら' : 'ログインはこちら'}</button>
+      </div>
+      {legalView === 'tos' && <LegalModal title="利用規約" content={TERMS_OF_SERVICE} onClose={() => setLegalView('none')} />}
+      {legalView === 'privacy' && <LegalModal title="プライバシーポリシー" content={PRIVACY_POLICY} onClose={() => setLegalView('none')} />}
+    </div>
+  );
+};
+
+export default function App() {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(fbAuth, (fbUser) => {
+      if (fbUser) {
+        let stored = store.getStoredUser();
+        if (!stored || stored.id !== fbUser.uid) {
+          stored = { id: fbUser.uid, displayId: fbUser.email?.split('@')[0] || 'fan', name: fbUser.email?.split('@')[0] || 'ファン', oshiColor: 'pink', isAnonymous: false, prefecture: '東京都', favoriteSpotIds: [], oshis: [], friendIds: [], privacy: { showSpots: true, showHistory: true, showOshis: true } };
+          store.saveUser(stored);
+        }
+        setUser(stored);
+      } else { setUser(null); }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) return null;
+  if (!user) return <AuthOverlay onLoginSuccess={setUser} />;
+
+  return <MainAppContent user={user} setUser={setUser} />;
+}

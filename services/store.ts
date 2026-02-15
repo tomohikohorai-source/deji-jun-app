@@ -1,5 +1,5 @@
 
-import { Spot, Stamp, UserProfile, ExchangePost, Activity } from '../types';
+import { Spot, Stamp, UserProfile, ExchangePost, Activity, AppNotification, ExchangeRequest, ExchangeComment } from '../types';
 import { INITIAL_SPOTS } from '../constants';
 
 const KEYS = {
@@ -8,6 +8,7 @@ const KEYS = {
   SPOTS: 'oshikatsu_spots',
   STAMPS: 'oshikatsu_stamps',
   EXCHANGES: 'oshikatsu_exchanges',
+  NOTIFICATIONS: 'oshikatsu_notifications',
   ACTIVITIES: 'oshikatsu_activities',
   REPORTS: 'oshikatsu_reports',
 };
@@ -89,10 +90,6 @@ export const getSpots = (): Spot[] => {
   return allSpots;
 };
 
-export const getAllSpots = (): Spot[] => {
-  return getSpots();
-};
-
 export const saveSpot = (spot: Spot) => {
   const data = localStorage.getItem(KEYS.SPOTS);
   const spots: Spot[] = data ? JSON.parse(data) : [];
@@ -112,16 +109,7 @@ export const updateSpot = (spot: Spot) => {
   localStorage.setItem(KEYS.SPOTS, JSON.stringify(spots));
 };
 
-export const getAllLocalStamps = (): Stamp[] => {
-  const data = localStorage.getItem(KEYS.STAMPS);
-  return data ? JSON.parse(data) : [];
-};
-
-export const getStamps = (userId: string): Stamp[] => {
-  const stamps = getAllLocalStamps();
-  return stamps.filter(s => s.userId === userId);
-};
-
+// Fix for Error in App.tsx line 1066: Added missing saveStamp function
 export const saveStamp = (stamp: Stamp) => {
   const data = localStorage.getItem(KEYS.STAMPS);
   const stamps: Stamp[] = data ? JSON.parse(data) : [];
@@ -129,9 +117,20 @@ export const saveStamp = (stamp: Stamp) => {
   localStorage.setItem(KEYS.STAMPS, JSON.stringify(stamps));
 };
 
+export const getAllLocalStamps = (): Stamp[] => {
+  const data = localStorage.getItem(KEYS.STAMPS);
+  return data ? JSON.parse(data) : [];
+};
+
 export const getExchanges = (): ExchangePost[] => {
   const data = localStorage.getItem(KEYS.EXCHANGES);
-  return data ? JSON.parse(data) : [];
+  const posts: ExchangePost[] = data ? JSON.parse(data) : [];
+  return posts.map(p => ({
+    ...p,
+    likes: p.likes || [],
+    comments: p.comments || [],
+    requests: p.requests || []
+  }));
 };
 
 export const saveExchange = (post: ExchangePost) => {
@@ -139,4 +138,56 @@ export const saveExchange = (post: ExchangePost) => {
   const posts: ExchangePost[] = data ? JSON.parse(data) : [];
   posts.unshift(post);
   localStorage.setItem(KEYS.EXCHANGES, JSON.stringify(posts));
+};
+
+export const updateExchange = (post: ExchangePost) => {
+  const data = localStorage.getItem(KEYS.EXCHANGES);
+  let posts: ExchangePost[] = data ? JSON.parse(data) : [];
+  const idx = posts.findIndex(p => p.id === post.id);
+  if (idx > -1) {
+    posts[idx] = post;
+    localStorage.setItem(KEYS.EXCHANGES, JSON.stringify(posts));
+  }
+};
+
+export const getNotifications = (userId: string): AppNotification[] => {
+  const data = localStorage.getItem(KEYS.NOTIFICATIONS);
+  const all: AppNotification[] = data ? JSON.parse(data) : [];
+  return all.filter(n => n.targetUserId === userId);
+};
+
+export const saveNotification = (n: AppNotification) => {
+  const data = localStorage.getItem(KEYS.NOTIFICATIONS);
+  const all: AppNotification[] = data ? JSON.parse(data) : [];
+  all.unshift(n);
+  localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(all));
+};
+
+export const markNotificationRead = (id: string) => {
+  const data = localStorage.getItem(KEYS.NOTIFICATIONS);
+  let all: AppNotification[] = data ? JSON.parse(data) : [];
+  const idx = all.findIndex(n => n.id === id);
+  if (idx > -1) {
+    all[idx].isRead = true;
+    localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(all));
+  }
+};
+
+export const markNotificationActioned = (postId: string, type: string) => {
+  const data = localStorage.getItem(KEYS.NOTIFICATIONS);
+  let all: AppNotification[] = data ? JSON.parse(data) : [];
+  all = all.map(n => n.postId === postId && n.type === type ? { ...n, isActioned: true, isRead: true } : n);
+  localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(all));
+};
+
+export const clearReadNotifications = (userId: string) => {
+  const data = localStorage.getItem(KEYS.NOTIFICATIONS);
+  let all: AppNotification[] = data ? JSON.parse(data) : [];
+  // 読了済みで、かつアクション不要なもの、またはアクション済みを削除
+  const filtered = all.filter(n => {
+    if (n.targetUserId !== userId) return true;
+    if (n.type === 'request' && !n.isActioned) return true;
+    return !n.isRead;
+  });
+  localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(filtered));
 };
